@@ -2,23 +2,23 @@ import { Plugin, MarkdownPostProcessorContext, MarkdownView, TFile } from "obsid
 
 const SPEAKER_LINE_RE = /^(.+?)\s+(\d{1,3}):(\d{2})\s*$/;
 const INLINE_TS_RE = /(\d{1,3}:\d{2})/g;
-const AUDIO_EMBED_RE = /!\[\[.+?\.(mp3|webm|wav|m4a|ogg|3gp|flac)\]\]/i;
+const MEDIA_EMBED_RE = /!\[\[.+?\.(mp3|webm|wav|m4a|ogg|3gp|flac|mp4|mov|avi|mkv|mpeg)\]\]/i;
 
 export default class TimestampPlayerPlugin extends Plugin {
 	onload() {
 		this.registerMarkdownPostProcessor(
 			async (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
-				if (!(await this.hasAudioEmbed(ctx))) return;
+				if (!(await this.hasMediaEmbed(ctx))) return;
 				this.processTimestamps(el);
 			}
 		);
 	}
 
-	private async hasAudioEmbed(ctx: MarkdownPostProcessorContext): Promise<boolean> {
+	private async hasMediaEmbed(ctx: MarkdownPostProcessorContext): Promise<boolean> {
 		const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
 		if (!(file instanceof TFile)) return false;
 		const content = await this.app.vault.cachedRead(file);
-		return AUDIO_EMBED_RE.test(content);
+		return MEDIA_EMBED_RE.test(content);
 	}
 
 	private processTimestamps(el: HTMLElement) {
@@ -91,7 +91,7 @@ export default class TimestampPlayerPlugin extends Plugin {
 	}
 
 	private activeBtn: HTMLElement | null = null;
-	private activeAudio: HTMLAudioElement | null = null;
+	private activeMedia: HTMLMediaElement | null = null;
 	private activeContainer: HTMLElement | null = null;
 	private boundTimeUpdate: (() => void) | null = null;
 	private boundEnded: (() => void) | null = null;
@@ -119,11 +119,11 @@ export default class TimestampPlayerPlugin extends Plugin {
 
 	private togglePlay(btn: HTMLElement, seconds: number) {
 		// If clicking the active button, toggle pause/play
-		if (this.activeBtn === btn && this.activeAudio) {
-			if (!this.activeAudio.paused) {
-				this.activeAudio.pause();
+		if (this.activeBtn === btn && this.activeMedia) {
+			if (!this.activeMedia.paused) {
+				this.activeMedia.pause();
 			} else {
-				this.activeAudio.play().catch(() => {});
+				this.activeMedia.play().catch(() => {});
 			}
 			return;
 		}
@@ -132,25 +132,25 @@ export default class TimestampPlayerPlugin extends Plugin {
 		if (!view) return;
 
 		const container = view.containerEl;
-		const audio = this.findAudioForBtn(container, btn);
-		if (!audio) return;
+		const media = this.findMediaForBtn(container, btn);
+		if (!media) return;
 
 		// Detach old listeners before pausing to avoid stale callbacks
-		this.detachAudioListeners();
+		this.detachMediaListeners();
 		this.resetActiveBtn();
 
-		// Pause previous audio if different
+		// Pause previous media if different
 		this.switching = true;
-		if (this.activeAudio && this.activeAudio !== audio && !this.activeAudio.paused) {
-			this.activeAudio.pause();
+		if (this.activeMedia && this.activeMedia !== media && !this.activeMedia.paused) {
+			this.activeMedia.pause();
 		}
 		this.switching = false;
 
-		// Seek and play the matched audio
-		audio.currentTime = Math.min(seconds, audio.duration || Infinity);
-		audio.play().catch(() => {});
+		// Seek and play the matched media
+		media.currentTime = Math.min(seconds, media.duration || Infinity);
+		media.play().catch(() => {});
 
-		this.activeAudio = audio;
+		this.activeMedia = media;
 		this.activeContainer = container;
 		this.setActiveBtn(btn);
 
@@ -164,10 +164,10 @@ export default class TimestampPlayerPlugin extends Plugin {
 				if (icon) icon.textContent = "▶";
 			}
 		};
-		audio.addEventListener("timeupdate", this.boundTimeUpdate);
-		audio.addEventListener("ended", this.boundEnded);
-		audio.addEventListener("pause", this.boundPause);
-		audio.addEventListener("play", () => {
+		media.addEventListener("timeupdate", this.boundTimeUpdate);
+		media.addEventListener("ended", this.boundEnded);
+		media.addEventListener("pause", this.boundPause);
+		media.addEventListener("play", () => {
 			if (this.activeBtn) {
 				const icon = this.activeBtn.querySelector(".tsp-play-icon");
 				if (icon) icon.textContent = "⏸";
@@ -175,39 +175,40 @@ export default class TimestampPlayerPlugin extends Plugin {
 		});
 	}
 
-	/** Find the audio element that this button belongs to (the last audio before it in document order) */
-	private findAudioForBtn(container: HTMLElement, btn: HTMLElement): HTMLAudioElement | null {
-		const all = Array.from(container.querySelectorAll("audio, .tsp-timestamp"));
-		let lastAudio: HTMLAudioElement | null = null;
+	/** Find the media element that this button belongs to (the last audio or video element before it in document order) */
+	private findMediaForBtn(container: HTMLElement, btn: HTMLElement): HTMLMediaElement | null {
+		const all = Array.from(container.querySelectorAll("audio, video, .tsp-timestamp"));
+		let lastMedia: HTMLMediaElement | null = null;
 		for (const el of all) {
-			if (el.tagName === "AUDIO") {
-				lastAudio = el as HTMLAudioElement;
+			if (el.tagName === "AUDIO" || el.tagName === "VIDEO") {
+				lastMedia = el as HTMLMediaElement;
 			} else if (el === btn) {
-				return lastAudio;
+				return lastMedia;
 			}
 		}
-		return lastAudio;
+		return lastMedia;
 	}
 
-	/** Get timestamp buttons that belong to the same audio section (between this audio and the next) */
-	private getTimestampsForAudio(container: HTMLElement, audio: HTMLAudioElement): HTMLElement[] {
-		const all = Array.from(container.querySelectorAll("audio, .tsp-timestamp"));
-		const audioIndex = all.indexOf(audio);
-		if (audioIndex === -1) return [];
+	/** Get timestamp buttons that belong to the same audio and video section (between this media element and the next) */
+	private getTimestampsForMedia(container: HTMLElement, media: HTMLMediaElement): HTMLElement[] {
+		const all = Array.from(container.querySelectorAll("audio, video, .tsp-timestamp"));
+		const mediaIndex = all.indexOf(media);
+		if (mediaIndex === -1) return [];
 
 		const result: HTMLElement[] = [];
-		for (let i = audioIndex + 1; i < all.length; i++) {
-			if (all[i].tagName === "AUDIO") break;
-			result.push(all[i] as HTMLElement);
+		for (let i = mediaIndex + 1; i < all.length; i++) {
+			const el = all[i];
+			if (el.tagName === "AUDIO" || el.tagName === "VIDEO") break;
+			result.push(el as HTMLElement);
 		}
 		return result;
 	}
 
 	private onTimeUpdate() {
-		if (!this.activeAudio || !this.activeContainer) return;
-		const currentTime = this.activeAudio.currentTime;
+		if (!this.activeMedia || !this.activeContainer) return;
+		const currentTime = this.activeMedia.currentTime;
 
-		const buttons = this.getTimestampsForAudio(this.activeContainer, this.activeAudio)
+		const buttons = this.getTimestampsForMedia(this.activeContainer, this.activeMedia)
 			.map((el) => ({
 				el,
 				seconds: parseFloat(el.getAttribute("data-seconds") || "0"),
@@ -249,11 +250,11 @@ export default class TimestampPlayerPlugin extends Plugin {
 		}
 	}
 
-	private detachAudioListeners() {
-		if (this.activeAudio) {
-			if (this.boundTimeUpdate) this.activeAudio.removeEventListener("timeupdate", this.boundTimeUpdate);
-			if (this.boundEnded) this.activeAudio.removeEventListener("ended", this.boundEnded);
-			if (this.boundPause) this.activeAudio.removeEventListener("pause", this.boundPause);
+	private detachMediaListeners() {
+		if (this.activeMedia) {
+			if (this.boundTimeUpdate) this.activeMedia.removeEventListener("timeupdate", this.boundTimeUpdate);
+			if (this.boundEnded) this.activeMedia.removeEventListener("ended", this.boundEnded);
+			if (this.boundPause) this.activeMedia.removeEventListener("pause", this.boundPause);
 		}
 		this.boundTimeUpdate = null;
 		this.boundEnded = null;
@@ -261,9 +262,9 @@ export default class TimestampPlayerPlugin extends Plugin {
 	}
 
 	private clearPlaybackState() {
-		this.detachAudioListeners();
+		this.detachMediaListeners();
 		this.resetActiveBtn();
-		this.activeAudio = null;
+		this.activeMedia = null;
 		this.activeContainer = null;
 	}
 }

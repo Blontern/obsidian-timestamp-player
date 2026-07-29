@@ -1,7 +1,7 @@
 import { Plugin, MarkdownPostProcessorContext, MarkdownView, TFile } from "obsidian";
 
-const SPEAKER_LINE_RE = /^(.+?)\s+(\d{1,3}):(\d{2})\s*$/;
-const INLINE_TS_RE = /(\d{1,3}:\d{2})/g;
+const SPEAKER_LINE_RE = /^(.+?)\s+((?:(?:\d{1,3}:)?\d{1,3}:\d{2}(?:\.\d{1,3})?))\s*$/;
+const INLINE_TS_RE = /(?:(?:(\d{1,3}):)?(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?)/g;
 const MEDIA_EMBED_RE = /!\[\[.+?\.(mp3|webm|wav|m4a|ogg|3gp|flac|mp4|mov|avi|mkv|mpeg)\]\]/i;
 
 export default class TimestampPlayerPlugin extends Plugin {
@@ -51,12 +51,52 @@ export default class TimestampPlayerPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * 解析时间字符串，返回总秒数（浮点数）
+	 * 支持格式: [hh:]mm:ss[.SSS]
+	 */
+	private parseTimeString(timeStr: string): number {
+		let hours = 0, minutes = 0, seconds = 0, millis = 0;
+		const trimmed = timeStr.trim();
+		if (!trimmed) return 0;
+
+		// 分离毫秒部分
+		let mainPart = trimmed;
+		let millisPart = "";
+		const dotIndex = trimmed.indexOf(".");
+		if (dotIndex !== -1) {
+			mainPart = trimmed.substring(0, dotIndex);
+			millisPart = trimmed.substring(dotIndex + 1);
+			// 解析毫秒，数字可能不足三位，按比例计算（如 .5 → 500ms）
+			if (millisPart) {
+				const millisNum = parseFloat("0." + millisPart);
+				if (!isNaN(millisNum)) {
+					millis = Math.round(millisNum * 1000);
+				}
+			}
+		}
+
+		const parts = mainPart.split(":").map(s => parseInt(s, 10));
+		if (parts.length === 2) {
+			// mm:ss
+			minutes = parts[0] || 0;
+			seconds = parts[1] || 0;
+		} else if (parts.length === 3) {
+			// hh:mm:ss
+			hours = parts[0] || 0;
+			minutes = parts[1] || 0;
+			seconds = parts[2] || 0;
+		} else {
+			return 0;
+		}
+
+		return hours * 3600 + minutes * 60 + seconds + millis / 1000;
+	}
+
 	private replaceSpeakerLine(node: Text, match: RegExpMatchArray) {
 		const speaker = match[1];
-		const minutes = parseInt(match[2], 10);
-		const seconds = parseInt(match[3], 10);
-		const totalSeconds = minutes * 60 + seconds;
-		const timeStr = match[2] + ":" + match[3];
+		const timeStr = match[2];
+		const totalSeconds = this.parseTimeString(timeStr);
 
 		const wrapper = createFragment();
 		wrapper.appendChild(createSpan({ cls: "tsp-speaker", text: speaker + " " }));
@@ -76,10 +116,9 @@ export default class TimestampPlayerPlugin extends Plugin {
 			if (m.index > lastIndex) {
 				fragment.appendChild(activeDocument.createTextNode(text.slice(lastIndex, m.index)));
 			}
-			const tsStr = m[1];
-			const parts = tsStr.split(":");
-			const totalSeconds = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
-			fragment.appendChild(this.createTimestampBtn(tsStr, totalSeconds));
+			const timeStr = m[0];
+			const totalSeconds = this.parseTimeString(timeStr);
+			fragment.appendChild(this.createTimestampBtn(timeStr, totalSeconds));
 			lastIndex = m.index + m[0].length;
 		}
 

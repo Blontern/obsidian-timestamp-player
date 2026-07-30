@@ -144,7 +144,12 @@ describe("StickyMediaController", () => {
 		mockRect(wrapper, wrapperRect);
 
 		const controller = new StickyMediaController(media, scrollEl, host);
+		const controllerWithState = controller as StickyMediaController & {
+			readonly isActive?: boolean;
+		};
+		assert.equal(controllerWithState.isActive, false);
 		controller.attach();
+		assert.equal(controllerWithState.isActive, true);
 		const anchor = document.querySelector<HTMLElement>(".tsp-sticky-anchor");
 		assert.ok(anchor, "attach 应在清理前创建原位锚点");
 		mockRect(anchor, { top: 80, left: 80, width: 400, height: 0 });
@@ -157,6 +162,7 @@ describe("StickyMediaController", () => {
 		assert.ok(parseFloat(layer.style.width) <= 260);
 
 		controller.destroy();
+		assert.equal(controllerWithState.isActive, false);
 		assert.equal(document.querySelector(".tsp-sticky-anchor"), null);
 		assert.equal(document.querySelector(".tsp-sticky-placeholder"), null);
 		assert.equal(document.querySelector(".tsp-sticky-media-layer"), null);

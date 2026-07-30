@@ -32,6 +32,10 @@ export class StickyMediaController {
 	private originalLeftInHost = 0;
 	private readonly boundRefresh = () => this.refresh();
 
+	get isActive(): boolean {
+		return this.attached && !this.destroyed;
+	}
+
 	constructor(
 		private readonly media: HTMLMediaElement,
 		private readonly scrollEl: HTMLElement,

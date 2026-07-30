@@ -75,7 +75,7 @@ export default class TimestampPlayerPlugin extends Plugin {
 		if (!context) return;
 
 		const existing = this.stickyControllers.get(context.scrollEl);
-		if (existing?.media === context.media) {
+		if (existing?.media === context.media && existing.controller.isActive) {
 			existing.controller.refresh();
 			return;
 		}
@@ -99,7 +99,7 @@ export default class TimestampPlayerPlugin extends Plugin {
 			}
 
 			entry.controller.refresh();
-			if (!entry.media.isConnected) {
+			if (!entry.controller.isActive || !entry.media.isConnected) {
 				this.stickyControllers.delete(scrollEl);
 			}
 		}

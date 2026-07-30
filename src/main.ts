@@ -17,6 +17,7 @@ export default class TimestampPlayerPlugin extends Plugin {
 		{
 			media: HTMLMediaElement;
 			controller: StickyMediaController | LivePreviewStickyMediaController;
+			sourcePath: string;
 		}
 	>();
 	private stickyMutationObserver: MutationObserver | null = null;
@@ -27,7 +28,7 @@ export default class TimestampPlayerPlugin extends Plugin {
 			async (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
 				if (!(await this.hasMediaEmbed(ctx))) return;
 				this.processTimestamps(el);
-				this.setupStickyMedia(el);
+				this.setupStickyMedia(el, ctx.sourcePath);
 			}
 		);
 
@@ -89,13 +90,14 @@ export default class TimestampPlayerPlugin extends Plugin {
 		}
 	}
 
-	private setupStickyMedia(renderRoot: HTMLElement) {
+	private setupStickyMedia(renderRoot: HTMLElement, sourcePath: string) {
 		const context = findStickyMediaContext(renderRoot);
 		if (!context) return;
 
 		const existing = this.stickyControllers.get(context.scrollEl);
 		if (
 			existing?.controller instanceof LivePreviewStickyMediaController
+			&& existing.sourcePath === sourcePath
 			&& context.scrollEl.matches(".cm-scroller")
 		) {
 			existing.media = context.media;
@@ -103,7 +105,11 @@ export default class TimestampPlayerPlugin extends Plugin {
 			return;
 		}
 
-		if (existing?.media === context.media && existing.controller.isActive) {
+		if (
+			existing?.media === context.media
+			&& existing.sourcePath === sourcePath
+			&& existing.controller.isActive
+		) {
 			existing.controller.refresh();
 			return;
 		}
@@ -121,7 +127,11 @@ export default class TimestampPlayerPlugin extends Plugin {
 				context.hostEl,
 			);
 		controller.attach();
-		this.stickyControllers.set(context.scrollEl, { media: context.media, controller });
+		this.stickyControllers.set(context.scrollEl, {
+			media: context.media,
+			controller,
+			sourcePath,
+		});
 	}
 
 	private startStickyMediaObserver() {
@@ -129,9 +139,10 @@ export default class TimestampPlayerPlugin extends Plugin {
 		const workspaceWindow = workspaceEl.ownerDocument.defaultView;
 		if (!workspaceWindow) return;
 
-		this.stickyMutationObserver = new workspaceWindow.MutationObserver(
-			() => this.scheduleStickyMediaScan(),
-		);
+		this.stickyMutationObserver = new workspaceWindow.MutationObserver(() => {
+			this.cleanupInvalidStickyContexts();
+			this.scheduleStickyMediaScan();
+		});
 		this.stickyMutationObserver.observe(workspaceEl, {
 			childList: true,
 			subtree: true,
@@ -155,22 +166,31 @@ export default class TimestampPlayerPlugin extends Plugin {
 
 	private scanStickyMedia() {
 		this.cleanupStickyControllers();
-		const validScrollEls = new Set<HTMLElement>();
 
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
 			const view = leaf.view;
 			if (!(view instanceof MarkdownView)) continue;
 
-			const scrollEl = findStickyScrollContainer(view.containerEl, view.getMode());
-			if (scrollEl) validScrollEls.add(scrollEl);
-
 			for (const media of findStickyMediaCandidates(view.containerEl, view.getMode())) {
-				this.setupStickyMedia(media);
+				if (view.file) this.setupStickyMedia(media, view.file.path);
 			}
 		}
 
+		this.cleanupInvalidStickyContexts();
+	}
+
+	private cleanupInvalidStickyContexts() {
+		const validScrollContexts = new Map<HTMLElement, string>();
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			const view = leaf.view;
+			if (!(view instanceof MarkdownView) || !view.file) continue;
+
+			const scrollEl = findStickyScrollContainer(view.containerEl, view.getMode());
+			if (scrollEl) validScrollContexts.set(scrollEl, view.file.path);
+		}
+
 		for (const [scrollEl, entry] of this.stickyControllers) {
-			if (validScrollEls.has(scrollEl)) continue;
+			if (validScrollContexts.get(scrollEl) === entry.sourcePath) continue;
 			entry.controller.destroy();
 			this.stickyControllers.delete(scrollEl);
 		}

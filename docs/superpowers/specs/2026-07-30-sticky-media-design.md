@@ -92,6 +92,7 @@ Obsidian 的滚动发生在 `.markdown-preview-view`，外层多个容器使用 
 
 - 重复后处理或 MutationObserver 扫描不会重复绑定同一媒体。
 - CodeMirror 重建媒体 widget 时，实时预览控制器更新源引用而不销毁正在吸顶的副本。
+- 控制器同时绑定滚动容器和 `sourcePath`；Obsidian 复用编辑器 DOM 打开其他笔记时，旧吸顶层在 DOM 变更周期内清理。
 - 媒体或视图从 DOM 移除时，控制器恢复或直接清理节点和监听器。
 - `destroy()` 在媒体仍可恢复时将其放回原位置；原位置已被 Obsidian 重渲染移除时，仅移除吸顶层。
 - `ResizeObserver` 不可用时仍可通过滚动和窗口 resize 更新尺寸。

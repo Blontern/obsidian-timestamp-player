@@ -8,12 +8,7 @@
     "build": "node esbuild.config.mjs production",
     "test": "tsx --test tests/**/*.test.ts"
   },
-  "keywords": [
-    "obsidian",
-    "audio",
-    "timestamp",
-    "transcription"
-  ],
+  "keywords": ["obsidian", "audio", "timestamp", "transcription"],
   "license": "MIT",
   "devDependencies": {
     "@types/jsdom": "^28.0.3",

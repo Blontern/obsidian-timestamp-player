@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在 Obsidian 阅读视图中让单个本地音频或视频越过窗格顶部后保持原始尺寸吸顶，并在滚回时无跳动恢复。
+**Goal:** 在 Obsidian 阅读视图和实时预览编辑模式中让单个本地音频或视频越过窗格顶部后保持原始尺寸吸顶，并在滚回时无跳动恢复。
 
-**Architecture:** 新增独立的 `StickyMediaController` 管理媒体节点、原位锚点、等高占位和窗格级吸顶层；移动原节点而非克隆。插件主类只负责在 Markdown 后处理阶段发现媒体、为每个阅读视图建立一个控制器，以及在布局变化或卸载时清理。
+**Architecture:** 阅读视图使用 `StickyMediaController` 移动原媒体节点并管理原位占位；实时预览使用 `LivePreviewStickyMediaController` 保留 CodeMirror widget，并通过窗格级媒体副本同步播放状态。插件主类通过 Markdown 后处理器发现阅读视图媒体，通过 MutationObserver 发现实时预览媒体。
 
 **Tech Stack:** TypeScript、Obsidian Plugin API、DOM API、Node.js 内置测试运行器、tsx、jsdom、esbuild。
 
@@ -14,8 +14,9 @@
 - 每篇笔记只考虑一个媒体元素。
 - 吸顶时保持媒体原始宽度和尺寸。
 - 不修改 Obsidian 滚动容器的 `overflow`。
-- 必须移动原媒体节点，禁止克隆播放器。
-- 只在阅读视图生效。
+- 阅读视图必须移动原媒体节点。
+- 实时预览禁止移动 CodeMirror widget，必须使用插件自有副本并同步播放状态。
+- 在阅读视图和实时预览编辑模式中生效，纯源码模式不生效。
 - 所有新增代码注释和 Git 提交说明使用中文，提交标题保留 `test:`、`feat:` 等英文前缀。
 
 ---
@@ -196,7 +197,12 @@ git commit -m "feat: 实现媒体窗格级吸顶控制器"
 
 - [ ] **Step 1: 编写 Obsidian 阅读视图上下文发现的失败测试**
 
-构造 `.view-content > .markdown-reading-view > .markdown-preview-view > renderRoot > audio`，调用 `findStickyMediaContext(renderRoot)` 并断言返回第一个媒体、`.markdown-preview-view` 滚动容器与 `.view-content` host。对 iframe、无媒体和不在阅读视图中的媒体断言返回 `null`。
+分别构造：
+
+- `.view-content > .markdown-reading-view > .markdown-preview-view > renderRoot > audio`
+- `.view-content > .markdown-source-view.is-live-preview > .cm-editor > .cm-scroller > renderRoot > audio`
+
+调用 `findStickyMediaContext(renderRoot)`，断言阅读视图返回 `.markdown-preview-view`、实时预览返回 `.cm-scroller`，两者都返回 `.view-content` host。对 iframe、无媒体、纯源码模式和不在 Markdown 视图中的媒体断言返回 `null`。
 
 - [ ] **Step 2: 运行测试确认新场景失败**
 
@@ -236,6 +242,13 @@ Markdown 后处理流程在时间戳处理后：
 4. 媒体变化时销毁旧控制器、创建并 `attach()` 新控制器。
 5. 注册 `layout-change` 清理已断开 DOM 的控制器。
 6. `onunload()` 销毁全部控制器并清空 map。
+
+实时预览补充接入：
+
+1. MutationObserver 监听 workspace 中媒体 widget 的创建与替换。
+2. `setTimeout(0)` 合并同一事件循环内的 DOM 变化。
+3. `.cm-scroller` 使用 `LivePreviewStickyMediaController`，不插入锚点、不移动原 widget。
+4. 越过阈值时创建媒体副本；滚回时同步状态并移除副本。
 
 - [ ] **Step 4: 添加窗格级样式**
 
@@ -330,9 +343,10 @@ obsidian vault="Obsidian Sandbox" open path="Sticky Media Test.md"
 
 - 滚过媒体后存在一个 `.tsp-sticky-media-layer`。
 - layer 顶部与滚动区域顶部一致。
-- 全文始终只有一个 `audio`。
+- 阅读视图始终只有一个 `audio`；实时预览吸顶时保留 CodeMirror 原媒体并创建一个插件自有副本。
 - placeholder 高度大于 0。
 - 滚回顶部后 layer 消失，audio 回到原文档位置。
+- 实时预览滚到底部后媒体嵌入源码仍存在，滚回后副本消失且播放位置、音量、静音和速度同步回原媒体。
 
 - [ ] **Step 5: 检查运行错误**
 

@@ -31,6 +31,7 @@ In reading view, each timestamp becomes a clickable `▶ 00:27` button. Click to
 - **Inline timestamps** — `MM:SS` anywhere in text is also clickable
 - **Play / pause toggle** — click `▶` to play, click `⏸` to pause, click again to resume
 - **Playback follow-along** — the current timestamp auto-highlights and progresses as the audio plays
+- **Sticky local media** — keeps the document's local audio or video player at the top while scrolling in reading view and Live Preview
 - **Multiple audio files** — each audio controls only the timestamps in its own section
 - **Auto-detection** — the plugin only activates on documents that contain embedded audio
 
@@ -102,7 +103,8 @@ Search for **Timestamp Player** in Settings → Community plugins, or install di
 ## Requirements
 
 - Obsidian 1.0.0+
-- Reading view (the plugin does not modify edit/live-preview mode)
+- Timestamp buttons: Reading view
+- Sticky local media: Reading view and Live Preview
 
 ## License
 

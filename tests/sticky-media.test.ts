@@ -209,4 +209,131 @@ describe("StickyMediaController", () => {
 		const sourceRoot = document.querySelector<HTMLElement>("#source-root")!;
 		assert.equal(findStickyMediaContext!(sourceRoot), null);
 	});
+
+	test("从实时预览后处理片段解析媒体、CodeMirror 滚动容器和窗格", () => {
+		document.body.innerHTML = `
+			<div class="view-content">
+				<div class="markdown-source-view is-live-preview">
+					<div class="cm-editor">
+						<div class="cm-scroller">
+							<div class="cm-content">
+								<div id="live-preview-root"><audio></audio></div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		`;
+		const findStickyMediaContext = (
+			stickyMediaModule as typeof stickyMediaModule & {
+				findStickyMediaContext: (renderRoot: HTMLElement) => {
+					media: HTMLMediaElement;
+					scrollEl: HTMLElement;
+					hostEl: HTMLElement;
+				} | null;
+			}
+		).findStickyMediaContext;
+		const renderRoot = document.querySelector<HTMLElement>("#live-preview-root")!;
+		const context = findStickyMediaContext(renderRoot);
+		assert.equal(context?.media, renderRoot.querySelector("audio"));
+		assert.equal(context?.scrollEl, document.querySelector(".cm-scroller"));
+		assert.equal(context?.hostEl, document.querySelector(".view-content"));
+
+		document.querySelector(".markdown-source-view")?.classList.remove("is-live-preview");
+		assert.equal(findStickyMediaContext(renderRoot), null);
+	});
+
+	test("媒体扫描只返回阅读视图和实时预览中的本地媒体", () => {
+		document.body.innerHTML = `
+			<div id="workspace">
+				<div class="markdown-reading-view"><audio id="reading-audio"></audio></div>
+				<div class="markdown-source-view is-live-preview"><video id="live-video"></video></div>
+				<div class="markdown-source-view"><audio id="source-audio"></audio></div>
+				<div class="other-view"><video id="other-video"></video></div>
+			</div>
+		`;
+		const findStickyMediaCandidates = (
+			stickyMediaModule as typeof stickyMediaModule & {
+				findStickyMediaCandidates?: (root: ParentNode) => HTMLMediaElement[];
+			}
+		).findStickyMediaCandidates;
+		assert.equal(typeof findStickyMediaCandidates, "function", "应导出媒体候选扫描函数");
+
+		const workspace = document.querySelector<HTMLElement>("#workspace")!;
+		assert.deepEqual(
+			findStickyMediaCandidates!(workspace).map((media) => media.id),
+			["reading-audio", "live-video"],
+		);
+	});
+
+	test("实时预览吸顶不移动 CodeMirror 媒体且在虚拟化后保留副本", () => {
+		document.body.innerHTML = `
+			<div class="view-content">
+				<div class="markdown-source-view is-live-preview">
+					<div class="cm-scroller">
+						<div class="cm-content">
+							<div class="internal-embed media-embed"><audio></audio></div>
+						</div>
+					</div>
+				</div>
+			</div>
+		`;
+		const LivePreviewStickyMediaController = (
+			stickyMediaModule as typeof stickyMediaModule & {
+				LivePreviewStickyMediaController?: new (
+					media: HTMLMediaElement,
+					scrollEl: HTMLElement,
+					hostEl: HTMLElement,
+				) => {
+					attach(): void;
+					refresh(): void;
+					updateMedia(media: HTMLMediaElement): void;
+					destroy(): void;
+				};
+			}
+		).LivePreviewStickyMediaController;
+		assert.equal(
+			typeof LivePreviewStickyMediaController,
+			"function",
+			"应导出实时预览吸顶控制器",
+		);
+
+		const host = document.querySelector<HTMLElement>(".view-content")!;
+		const scrollEl = document.querySelector<HTMLElement>(".cm-scroller")!;
+		const content = document.querySelector<HTMLElement>(".cm-content")!;
+		const wrapper = document.querySelector<HTMLElement>(".internal-embed")!;
+		const media = document.querySelector<HTMLAudioElement>("audio")!;
+		mockRect(host, { top: 0, left: 0, width: 600, height: 500 });
+		mockRect(scrollEl, { top: 20, left: 0, width: 600, height: 480 });
+		mockRect(wrapper, { top: 140, left: 80, width: 400, height: 48 });
+
+		const controller = new LivePreviewStickyMediaController!(media, scrollEl, host);
+		controller.attach();
+		scrollEl.scrollTop = 600;
+		scrollEl.dispatchEvent(new dom.window.Event("scroll"));
+
+		const layer = host.querySelector<HTMLElement>(".tsp-sticky-media-layer")!;
+		assert.ok(layer, "越过阈值后应创建吸顶副本");
+		assert.equal(wrapper.parentElement, content, "原媒体包装层必须留在 CodeMirror 中");
+		assert.notEqual(layer.querySelector("audio"), media, "吸顶媒体应为插件自有副本");
+		assert.equal(document.querySelectorAll("audio").length, 2);
+
+		wrapper.remove();
+		controller.refresh();
+		assert.equal(layer.querySelectorAll("audio").length, 1, "原 widget 虚拟化后副本应保留");
+
+		const restoredWrapper = document.createElement("div");
+		restoredWrapper.className = "internal-embed media-embed";
+		const restoredMedia = document.createElement("audio");
+		restoredWrapper.appendChild(restoredMedia);
+		content.prepend(restoredWrapper);
+		mockRect(restoredWrapper, { top: 140, left: 80, width: 400, height: 48 });
+		scrollEl.scrollTop = 0;
+		controller.updateMedia(restoredMedia);
+		controller.refresh();
+
+		assert.equal(host.querySelector(".tsp-sticky-media-layer"), null);
+		assert.equal(restoredWrapper.parentElement, content);
+		controller.destroy();
+	});
 });

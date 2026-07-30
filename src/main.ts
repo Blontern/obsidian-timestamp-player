@@ -1,5 +1,10 @@
 import { Plugin, MarkdownPostProcessorContext, MarkdownView, TFile } from "obsidian";
-import { findStickyMediaContext, StickyMediaController } from "./sticky-media";
+import {
+	findStickyMediaCandidates,
+	findStickyMediaContext,
+	LivePreviewStickyMediaController,
+	StickyMediaController,
+} from "./sticky-media";
 
 const SPEAKER_LINE_RE = /^(.+?)\s+((?:(?:\d{1,3}:)?\d{1,3}:\d{2}(?:\.\d{1,3})?))\s*$/;
 const INLINE_TS_RE = /(?:(?:(\d{1,3}):)?(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?)/g;
@@ -8,8 +13,13 @@ const MEDIA_EMBED_RE = /!\[\[.+?\.(mp3|webm|wav|m4a|ogg|3gp|flac|mp4|mov|avi|mkv
 export default class TimestampPlayerPlugin extends Plugin {
 	private stickyControllers = new Map<
 		HTMLElement,
-		{ media: HTMLMediaElement; controller: StickyMediaController }
+		{
+			media: HTMLMediaElement;
+			controller: StickyMediaController | LivePreviewStickyMediaController;
+		}
 	>();
+	private stickyMutationObserver: MutationObserver | null = null;
+	private stickyScanTimer: number | null = null;
 
 	onload() {
 		this.registerMarkdownPostProcessor(
@@ -21,12 +31,20 @@ export default class TimestampPlayerPlugin extends Plugin {
 		);
 
 		this.registerEvent(
-			this.app.workspace.on("layout-change", () => this.cleanupStickyControllers())
+			this.app.workspace.on("layout-change", () => this.scheduleStickyMediaScan())
 		);
+		this.startStickyMediaObserver();
 	}
 
 	onunload() {
 		this.clearPlaybackState();
+		this.stickyMutationObserver?.disconnect();
+		this.stickyMutationObserver = null;
+		const workspaceWindow = this.app.workspace.containerEl.ownerDocument.defaultView;
+		if (this.stickyScanTimer !== null) {
+			workspaceWindow?.clearTimeout(this.stickyScanTimer);
+			this.stickyScanTimer = null;
+		}
 		for (const { controller } of this.stickyControllers.values()) {
 			controller.destroy();
 		}
@@ -75,19 +93,76 @@ export default class TimestampPlayerPlugin extends Plugin {
 		if (!context) return;
 
 		const existing = this.stickyControllers.get(context.scrollEl);
+		if (
+			existing?.controller instanceof LivePreviewStickyMediaController
+			&& context.scrollEl.matches(".cm-scroller")
+		) {
+			existing.media = context.media;
+			existing.controller.updateMedia(context.media);
+			return;
+		}
+
 		if (existing?.media === context.media && existing.controller.isActive) {
 			existing.controller.refresh();
 			return;
 		}
 
 		existing?.controller.destroy();
-		const controller = new StickyMediaController(
-			context.media,
-			context.scrollEl,
-			context.hostEl,
-		);
+		const controller = context.scrollEl.matches(".cm-scroller")
+			? new LivePreviewStickyMediaController(
+				context.media,
+				context.scrollEl,
+				context.hostEl,
+			)
+			: new StickyMediaController(
+				context.media,
+				context.scrollEl,
+				context.hostEl,
+			);
 		controller.attach();
 		this.stickyControllers.set(context.scrollEl, { media: context.media, controller });
+	}
+
+	private startStickyMediaObserver() {
+		const workspaceEl = this.app.workspace.containerEl;
+		const workspaceWindow = workspaceEl.ownerDocument.defaultView;
+		if (!workspaceWindow) return;
+
+		this.stickyMutationObserver = new workspaceWindow.MutationObserver(
+			() => this.scheduleStickyMediaScan(),
+		);
+		this.stickyMutationObserver.observe(workspaceEl, {
+			childList: true,
+			subtree: true,
+		});
+		this.scanStickyMedia();
+	}
+
+	private scheduleStickyMediaScan() {
+		if (this.stickyScanTimer !== null) return;
+		const workspaceWindow = this.app.workspace.containerEl.ownerDocument.defaultView;
+		if (!workspaceWindow) {
+			this.scanStickyMedia();
+			return;
+		}
+
+		this.stickyScanTimer = workspaceWindow.setTimeout(() => {
+			this.stickyScanTimer = null;
+			this.scanStickyMedia();
+		}, 0);
+	}
+
+	private scanStickyMedia() {
+		this.cleanupStickyControllers();
+
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			const view = leaf.view;
+			if (!(view instanceof MarkdownView)) continue;
+
+			for (const media of findStickyMediaCandidates(view.containerEl, view.getMode())) {
+				this.setupStickyMedia(media);
+			}
+		}
 	}
 
 	private cleanupStickyControllers() {
@@ -99,7 +174,7 @@ export default class TimestampPlayerPlugin extends Plugin {
 			}
 
 			entry.controller.refresh();
-			if (!entry.controller.isActive || !entry.media.isConnected) {
+			if (!entry.controller.isActive) {
 				this.stickyControllers.delete(scrollEl);
 			}
 		}

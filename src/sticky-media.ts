@@ -4,18 +4,47 @@ export interface StickyMediaContext {
 	hostEl: HTMLElement;
 }
 
+export function findStickyMediaCandidates(
+	root: ParentNode,
+	mode?: "preview" | "source",
+): HTMLMediaElement[] {
+	const selectors: string[] = [];
+	if (!mode || mode === "preview") {
+		selectors.push(".markdown-reading-view audio", ".markdown-reading-view video");
+	}
+	if (!mode || mode === "source") {
+		selectors.push(
+			".markdown-source-view.is-live-preview audio",
+			".markdown-source-view.is-live-preview video",
+		);
+	}
+
+	return Array.from(root.querySelectorAll<HTMLMediaElement>(selectors.join(", ")));
+}
+
 export function findStickyMediaContext(renderRoot: HTMLElement): StickyMediaContext | null {
 	const media = renderRoot.matches("audio, video")
 		? renderRoot as HTMLMediaElement
 		: renderRoot.querySelector<HTMLMediaElement>("audio, video");
 	if (!media) return null;
 
-	const scrollEl = renderRoot.closest<HTMLElement>(".markdown-preview-view");
-	const readingView = scrollEl?.closest<HTMLElement>(".markdown-reading-view");
-	const hostEl = scrollEl?.closest<HTMLElement>(".view-content");
-	if (!scrollEl || !readingView || !hostEl) return null;
+	const readingScrollEl = renderRoot.closest<HTMLElement>(".markdown-preview-view");
+	const readingView = readingScrollEl?.closest<HTMLElement>(".markdown-reading-view");
+	const readingHostEl = readingScrollEl?.closest<HTMLElement>(".view-content");
+	if (readingScrollEl && readingView && readingHostEl) {
+		return { media, scrollEl: readingScrollEl, hostEl: readingHostEl };
+	}
 
-	return { media, scrollEl, hostEl };
+	const livePreviewScrollEl = renderRoot.closest<HTMLElement>(".cm-scroller");
+	const livePreviewView = livePreviewScrollEl?.closest<HTMLElement>(
+		".markdown-source-view.is-live-preview",
+	);
+	const livePreviewHostEl = livePreviewScrollEl?.closest<HTMLElement>(".view-content");
+	if (livePreviewScrollEl && livePreviewView && livePreviewHostEl) {
+		return { media, scrollEl: livePreviewScrollEl, hostEl: livePreviewHostEl };
+	}
+
+	return null;
 }
 
 export class StickyMediaController {
@@ -170,5 +199,170 @@ export class StickyMediaController {
 		this.layer.style.top = `${scrollRect.top - hostRect.top}px`;
 		this.layer.style.left = `${left}px`;
 		this.layer.style.width = `${width}px`;
+	}
+}
+
+export class LivePreviewStickyMediaController {
+	private media: HTMLMediaElement;
+	private wrapper: HTMLElement;
+	private layer: HTMLElement | null = null;
+	private cloneMedia: HTMLMediaElement | null = null;
+	private attached = false;
+	private docked = false;
+	private destroyed = false;
+	private threshold = 0;
+	private originalWidth = 0;
+	private originalLeftInHost = 0;
+	private readonly boundRefresh = () => this.refresh();
+	private readonly boundResize = () => {
+		if (!this.docked) this.measureSource();
+		this.refresh();
+	};
+
+	get isActive(): boolean {
+		return this.attached && !this.destroyed;
+	}
+
+	constructor(
+		media: HTMLMediaElement,
+		private readonly scrollEl: HTMLElement,
+		private readonly hostEl: HTMLElement,
+	) {
+		this.media = media;
+		this.wrapper = this.resolveWrapper(media);
+	}
+
+	attach(): void {
+		if (this.attached || this.destroyed) return;
+
+		this.measureSource();
+		this.scrollEl.addEventListener("scroll", this.boundRefresh, { passive: true });
+		this.media.ownerDocument.defaultView?.addEventListener("resize", this.boundResize);
+		this.attached = true;
+		this.refresh();
+	}
+
+	updateMedia(media: HTMLMediaElement): void {
+		if (this.destroyed) return;
+
+		this.media = media;
+		this.wrapper = this.resolveWrapper(media);
+		this.measureSource();
+		this.refresh();
+	}
+
+	refresh(): void {
+		if (!this.attached || this.destroyed) return;
+		if (!this.scrollEl.isConnected || !this.hostEl.isConnected) {
+			this.destroy();
+			return;
+		}
+
+		if (this.scrollEl.scrollTop > this.threshold) {
+			if (!this.docked && this.media.isConnected) this.dock();
+			this.syncDockedGeometry();
+		} else if (this.docked && this.media.isConnected) {
+			this.restore();
+		}
+	}
+
+	destroy(): void {
+		if (this.destroyed) return;
+
+		this.scrollEl.removeEventListener("scroll", this.boundRefresh);
+		this.media.ownerDocument.defaultView?.removeEventListener("resize", this.boundResize);
+		if (this.docked && this.media.isConnected) {
+			this.copyPlaybackState(this.cloneMedia, this.media);
+		}
+		this.layer?.remove();
+		this.hostEl.classList.remove("tsp-sticky-host-context");
+		this.layer = null;
+		this.cloneMedia = null;
+		this.docked = false;
+		this.attached = false;
+		this.destroyed = true;
+	}
+
+	private resolveWrapper(media: HTMLMediaElement): HTMLElement {
+		const candidate = media.closest<HTMLElement>(".internal-embed, .media-embed");
+		return candidate && this.scrollEl.contains(candidate) ? candidate : media;
+	}
+
+	private measureSource(): void {
+		if (!this.wrapper.isConnected) return;
+
+		const wrapperRect = this.wrapper.getBoundingClientRect();
+		const scrollRect = this.scrollEl.getBoundingClientRect();
+		const hostRect = this.hostEl.getBoundingClientRect();
+		this.threshold = this.scrollEl.scrollTop + wrapperRect.top - scrollRect.top;
+		this.originalWidth = wrapperRect.width;
+		this.originalLeftInHost = wrapperRect.left - hostRect.left;
+	}
+
+	private dock(): void {
+		const cloneWrapper = this.wrapper.cloneNode(true) as HTMLElement;
+		const cloneMedia = cloneWrapper.matches("audio, video")
+			? cloneWrapper as HTMLMediaElement
+			: cloneWrapper.querySelector<HTMLMediaElement>("audio, video");
+		if (!cloneMedia) return;
+
+		this.layer = this.media.ownerDocument.createElement("div");
+		this.layer.className = "tsp-sticky-media-layer";
+		this.hostEl.classList.add("tsp-sticky-host-context");
+		this.hostEl.appendChild(this.layer);
+		this.layer.appendChild(cloneWrapper);
+		this.cloneMedia = cloneMedia;
+		this.copyPlaybackState(this.media, cloneMedia);
+
+		if (!this.media.paused) {
+			this.media.pause();
+			void cloneMedia.play().catch(() => {});
+		}
+		this.docked = true;
+	}
+
+	private restore(): void {
+		this.copyPlaybackState(this.cloneMedia, this.media);
+		const shouldResume = this.cloneMedia ? !this.cloneMedia.paused : false;
+		this.layer?.remove();
+		this.hostEl.classList.remove("tsp-sticky-host-context");
+		this.layer = null;
+		this.cloneMedia = null;
+		this.docked = false;
+
+		if (shouldResume) {
+			void this.media.play().catch(() => {});
+		}
+	}
+
+	private syncDockedGeometry(): void {
+		if (!this.docked || !this.layer) return;
+
+		const hostRect = this.hostEl.getBoundingClientRect();
+		const scrollRect = this.scrollEl.getBoundingClientRect();
+		const availableWidth = Math.max(
+			0,
+			hostRect.width - Math.max(0, this.originalLeftInHost),
+		);
+		this.layer.style.top = `${scrollRect.top - hostRect.top}px`;
+		this.layer.style.left = `${this.originalLeftInHost}px`;
+		this.layer.style.width = `${Math.min(this.originalWidth, availableWidth)}px`;
+	}
+
+	private copyPlaybackState(
+		source: HTMLMediaElement | null,
+		target: HTMLMediaElement | null,
+	): void {
+		if (!source || !target) return;
+
+		try {
+			target.currentTime = source.currentTime;
+			target.volume = source.volume;
+			target.muted = source.muted;
+			target.playbackRate = source.playbackRate;
+			target.loop = source.loop;
+		} catch {
+			// 媒体尚未载入元数据时，浏览器可能拒绝设置播放位置。
+		}
 	}
 }

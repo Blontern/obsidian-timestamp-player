@@ -22,6 +22,21 @@ export function findStickyMediaCandidates(
 	return Array.from(root.querySelectorAll<HTMLMediaElement>(selectors.join(", ")));
 }
 
+export function findStickyScrollContainer(
+	root: ParentNode,
+	mode: "preview" | "source",
+): HTMLElement | null {
+	if (mode === "preview") {
+		return root.querySelector<HTMLElement>(
+			".markdown-reading-view .markdown-preview-view",
+		);
+	}
+
+	return root.querySelector<HTMLElement>(
+		".markdown-source-view.is-live-preview .cm-scroller",
+	);
+}
+
 export function findStickyMediaContext(renderRoot: HTMLElement): StickyMediaContext | null {
 	const media = renderRoot.matches("audio, video")
 		? renderRoot as HTMLMediaElement

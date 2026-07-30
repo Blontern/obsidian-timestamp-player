@@ -2,6 +2,7 @@ import { Plugin, MarkdownPostProcessorContext, MarkdownView, TFile } from "obsid
 import {
 	findStickyMediaCandidates,
 	findStickyMediaContext,
+	findStickyScrollContainer,
 	LivePreviewStickyMediaController,
 	StickyMediaController,
 } from "./sticky-media";
@@ -154,14 +155,24 @@ export default class TimestampPlayerPlugin extends Plugin {
 
 	private scanStickyMedia() {
 		this.cleanupStickyControllers();
+		const validScrollEls = new Set<HTMLElement>();
 
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
 			const view = leaf.view;
 			if (!(view instanceof MarkdownView)) continue;
 
+			const scrollEl = findStickyScrollContainer(view.containerEl, view.getMode());
+			if (scrollEl) validScrollEls.add(scrollEl);
+
 			for (const media of findStickyMediaCandidates(view.containerEl, view.getMode())) {
 				this.setupStickyMedia(media);
 			}
+		}
+
+		for (const [scrollEl, entry] of this.stickyControllers) {
+			if (validScrollEls.has(scrollEl)) continue;
+			entry.controller.destroy();
+			this.stickyControllers.delete(scrollEl);
 		}
 	}
 

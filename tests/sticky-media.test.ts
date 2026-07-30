@@ -266,6 +266,45 @@ describe("StickyMediaController", () => {
 		);
 	});
 
+	test("当前模式只返回允许吸顶的滚动容器", () => {
+		document.body.innerHTML = `
+			<div id="view-root">
+				<div class="markdown-reading-view">
+					<div class="markdown-preview-view"></div>
+				</div>
+				<div class="markdown-source-view is-live-preview">
+					<div class="cm-scroller"></div>
+				</div>
+			</div>
+		`;
+		const findStickyScrollContainer = (
+			stickyMediaModule as typeof stickyMediaModule & {
+				findStickyScrollContainer?: (
+					root: ParentNode,
+					mode: "preview" | "source",
+				) => HTMLElement | null;
+			}
+		).findStickyScrollContainer;
+		assert.equal(
+			typeof findStickyScrollContainer,
+			"function",
+			"应导出当前模式滚动容器发现函数",
+		);
+
+		const root = document.querySelector<HTMLElement>("#view-root")!;
+		assert.equal(
+			findStickyScrollContainer!(root, "preview"),
+			root.querySelector(".markdown-preview-view"),
+		);
+		assert.equal(
+			findStickyScrollContainer!(root, "source"),
+			root.querySelector(".cm-scroller"),
+		);
+
+		root.querySelector(".markdown-source-view")?.classList.remove("is-live-preview");
+		assert.equal(findStickyScrollContainer!(root, "source"), null);
+	});
+
 	test("实时预览吸顶不移动 CodeMirror 媒体且在虚拟化后保留副本", () => {
 		document.body.innerHTML = `
 			<div class="view-content">

@@ -31,7 +31,7 @@ export default class TimestampPlayerPlugin extends Plugin {
 		);
 
 		this.registerEvent(
-			this.app.workspace.on("layout-change", () => this.scheduleStickyMediaScan())
+			this.app.workspace.on("layout-change", () => this.scanStickyMedia())
 		);
 		this.startStickyMediaObserver();
 	}

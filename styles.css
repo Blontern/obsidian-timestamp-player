@@ -42,3 +42,23 @@
 .tsp-time {
 	font-family: var(--font-monospace);
 }
+
+.tsp-sticky-host-context {
+	position: relative;
+}
+
+.tsp-sticky-anchor {
+	height: 0;
+	pointer-events: none;
+}
+
+.tsp-sticky-media-layer {
+	position: absolute;
+	z-index: var(--layer-popover, 30);
+	box-sizing: border-box;
+	background: var(--background-primary);
+}
+
+.tsp-sticky-placeholder {
+	box-sizing: border-box;
+}

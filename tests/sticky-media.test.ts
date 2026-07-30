@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { JSDOM } from "jsdom";
+import * as stickyMediaModule from "../src/sticky-media";
 import { StickyMediaController } from "../src/sticky-media";
 
 interface MutableRect {
@@ -164,5 +165,42 @@ describe("StickyMediaController", () => {
 
 		scrollEl.dispatchEvent(new dom.window.Event("scroll"));
 		assert.equal(document.querySelector(".tsp-sticky-media-layer"), null);
+	});
+
+	test("从阅读视图后处理片段解析媒体、滚动容器和窗格", () => {
+		document.body.innerHTML = `
+			<div class="view-content">
+				<div class="markdown-reading-view">
+					<div class="markdown-preview-view">
+						<div class="markdown-preview-section">
+							<div id="render-root"><audio></audio></div>
+						</div>
+					</div>
+				</div>
+			</div>
+		`;
+		const findStickyMediaContext = (
+			stickyMediaModule as typeof stickyMediaModule & {
+				findStickyMediaContext?: (renderRoot: HTMLElement) => {
+					media: HTMLMediaElement;
+					scrollEl: HTMLElement;
+					hostEl: HTMLElement;
+				} | null;
+			}
+		).findStickyMediaContext;
+		assert.equal(typeof findStickyMediaContext, "function", "应导出阅读视图上下文发现函数");
+
+		const renderRoot = document.querySelector<HTMLElement>("#render-root")!;
+		const context = findStickyMediaContext!(renderRoot);
+		assert.equal(context?.media, renderRoot.querySelector("audio"));
+		assert.equal(context?.scrollEl, document.querySelector(".markdown-preview-view"));
+		assert.equal(context?.hostEl, document.querySelector(".view-content"));
+
+		renderRoot.innerHTML = "<iframe></iframe>";
+		assert.equal(findStickyMediaContext!(renderRoot), null);
+
+		document.body.innerHTML = '<div id="source-root"><video></video></div>';
+		const sourceRoot = document.querySelector<HTMLElement>("#source-root")!;
+		assert.equal(findStickyMediaContext!(sourceRoot), null);
 	});
 });

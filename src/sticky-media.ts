@@ -1,3 +1,23 @@
+export interface StickyMediaContext {
+	media: HTMLMediaElement;
+	scrollEl: HTMLElement;
+	hostEl: HTMLElement;
+}
+
+export function findStickyMediaContext(renderRoot: HTMLElement): StickyMediaContext | null {
+	const media = renderRoot.matches("audio, video")
+		? renderRoot as HTMLMediaElement
+		: renderRoot.querySelector<HTMLMediaElement>("audio, video");
+	if (!media) return null;
+
+	const scrollEl = renderRoot.closest<HTMLElement>(".markdown-preview-view");
+	const readingView = scrollEl?.closest<HTMLElement>(".markdown-reading-view");
+	const hostEl = scrollEl?.closest<HTMLElement>(".view-content");
+	if (!scrollEl || !readingView || !hostEl) return null;
+
+	return { media, scrollEl, hostEl };
+}
+
 export class StickyMediaController {
 	private readonly wrapper: HTMLElement;
 	private anchor: HTMLElement | null = null;

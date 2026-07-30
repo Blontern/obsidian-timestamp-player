@@ -1,17 +1,36 @@
 import { Plugin, MarkdownPostProcessorContext, MarkdownView, TFile } from "obsidian";
+import { findStickyMediaContext, StickyMediaController } from "./sticky-media";
 
 const SPEAKER_LINE_RE = /^(.+?)\s+((?:(?:\d{1,3}:)?\d{1,3}:\d{2}(?:\.\d{1,3})?))\s*$/;
 const INLINE_TS_RE = /(?:(?:(\d{1,3}):)?(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?)/g;
 const MEDIA_EMBED_RE = /!\[\[.+?\.(mp3|webm|wav|m4a|ogg|3gp|flac|mp4|mov|avi|mkv|mpeg)\]\]/i;
 
 export default class TimestampPlayerPlugin extends Plugin {
+	private stickyControllers = new Map<
+		HTMLElement,
+		{ media: HTMLMediaElement; controller: StickyMediaController }
+	>();
+
 	onload() {
 		this.registerMarkdownPostProcessor(
 			async (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
 				if (!(await this.hasMediaEmbed(ctx))) return;
 				this.processTimestamps(el);
+				this.setupStickyMedia(el);
 			}
 		);
+
+		this.registerEvent(
+			this.app.workspace.on("layout-change", () => this.cleanupStickyControllers())
+		);
+	}
+
+	onunload() {
+		this.clearPlaybackState();
+		for (const { controller } of this.stickyControllers.values()) {
+			controller.destroy();
+		}
+		this.stickyControllers.clear();
 	}
 
 	private async hasMediaEmbed(ctx: MarkdownPostProcessorContext): Promise<boolean> {
@@ -47,6 +66,41 @@ export default class TimestampPlayerPlugin extends Plugin {
 				} else {
 					this.replaceInlineTimestamps(item.node);
 				}
+			}
+		}
+	}
+
+	private setupStickyMedia(renderRoot: HTMLElement) {
+		const context = findStickyMediaContext(renderRoot);
+		if (!context) return;
+
+		const existing = this.stickyControllers.get(context.scrollEl);
+		if (existing?.media === context.media) {
+			existing.controller.refresh();
+			return;
+		}
+
+		existing?.controller.destroy();
+		const controller = new StickyMediaController(
+			context.media,
+			context.scrollEl,
+			context.hostEl,
+		);
+		controller.attach();
+		this.stickyControllers.set(context.scrollEl, { media: context.media, controller });
+	}
+
+	private cleanupStickyControllers() {
+		for (const [scrollEl, entry] of this.stickyControllers) {
+			if (!scrollEl.isConnected) {
+				entry.controller.destroy();
+				this.stickyControllers.delete(scrollEl);
+				continue;
+			}
+
+			entry.controller.refresh();
+			if (!entry.media.isConnected) {
+				this.stickyControllers.delete(scrollEl);
 			}
 		}
 	}

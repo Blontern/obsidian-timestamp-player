@@ -1,17 +1,56 @@
 import { Plugin, MarkdownPostProcessorContext, MarkdownView, TFile } from "obsidian";
+import {
+	findStickyMediaCandidates,
+	findStickyMediaContext,
+	findStickyScrollContainer,
+	LivePreviewStickyMediaController,
+	StickyMediaController,
+} from "./sticky-media";
 
 const SPEAKER_LINE_RE = /^(.+?)\s+((?:(?:\d{1,3}:)?\d{1,3}:\d{2}(?:\.\d{1,3})?))\s*$/;
 const INLINE_TS_RE = /(?:(?:(\d{1,3}):)?(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?)/g;
 const MEDIA_EMBED_RE = /!\[\[.+?\.(mp3|webm|wav|m4a|ogg|3gp|flac|mp4|mov|avi|mkv|mpeg)\]\]/i;
 
 export default class TimestampPlayerPlugin extends Plugin {
+	private stickyControllers = new Map<
+		HTMLElement,
+		{
+			media: HTMLMediaElement;
+			controller: StickyMediaController | LivePreviewStickyMediaController;
+			sourcePath: string;
+		}
+	>();
+	private stickyMutationObserver: MutationObserver | null = null;
+	private stickyScanTimer: number | null = null;
+
 	onload() {
 		this.registerMarkdownPostProcessor(
 			async (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
 				if (!(await this.hasMediaEmbed(ctx))) return;
 				this.processTimestamps(el);
+				this.setupStickyMedia(el, ctx.sourcePath);
 			}
 		);
+
+		this.registerEvent(
+			this.app.workspace.on("layout-change", () => this.scanStickyMedia())
+		);
+		this.startStickyMediaObserver();
+	}
+
+	onunload() {
+		this.clearPlaybackState();
+		this.stickyMutationObserver?.disconnect();
+		this.stickyMutationObserver = null;
+		const workspaceWindow = this.app.workspace.containerEl.ownerDocument.defaultView;
+		if (this.stickyScanTimer !== null) {
+			workspaceWindow?.clearTimeout(this.stickyScanTimer);
+			this.stickyScanTimer = null;
+		}
+		for (const { controller } of this.stickyControllers.values()) {
+			controller.destroy();
+		}
+		this.stickyControllers.clear();
 	}
 
 	private async hasMediaEmbed(ctx: MarkdownPostProcessorContext): Promise<boolean> {
@@ -47,6 +86,127 @@ export default class TimestampPlayerPlugin extends Plugin {
 				} else {
 					this.replaceInlineTimestamps(item.node);
 				}
+			}
+		}
+	}
+
+	private setupStickyMedia(renderRoot: HTMLElement, sourcePath: string) {
+		const context = findStickyMediaContext(renderRoot);
+		if (!context) return;
+
+		const existing = this.stickyControllers.get(context.scrollEl);
+		if (
+			existing?.controller instanceof LivePreviewStickyMediaController
+			&& existing.sourcePath === sourcePath
+			&& context.scrollEl.matches(".cm-scroller")
+		) {
+			existing.media = context.media;
+			existing.controller.updateMedia(context.media);
+			return;
+		}
+
+		if (
+			existing?.media === context.media
+			&& existing.sourcePath === sourcePath
+			&& existing.controller.isActive
+		) {
+			existing.controller.refresh();
+			return;
+		}
+
+		existing?.controller.destroy();
+		const controller = context.scrollEl.matches(".cm-scroller")
+			? new LivePreviewStickyMediaController(
+				context.media,
+				context.scrollEl,
+				context.hostEl,
+			)
+			: new StickyMediaController(
+				context.media,
+				context.scrollEl,
+				context.hostEl,
+			);
+		controller.attach();
+		this.stickyControllers.set(context.scrollEl, {
+			media: context.media,
+			controller,
+			sourcePath,
+		});
+	}
+
+	private startStickyMediaObserver() {
+		const workspaceEl = this.app.workspace.containerEl;
+		const workspaceWindow = workspaceEl.ownerDocument.defaultView;
+		if (!workspaceWindow) return;
+
+		this.stickyMutationObserver = new workspaceWindow.MutationObserver(() => {
+			this.cleanupInvalidStickyContexts();
+			this.scheduleStickyMediaScan();
+		});
+		this.stickyMutationObserver.observe(workspaceEl, {
+			childList: true,
+			subtree: true,
+		});
+		this.scanStickyMedia();
+	}
+
+	private scheduleStickyMediaScan() {
+		if (this.stickyScanTimer !== null) return;
+		const workspaceWindow = this.app.workspace.containerEl.ownerDocument.defaultView;
+		if (!workspaceWindow) {
+			this.scanStickyMedia();
+			return;
+		}
+
+		this.stickyScanTimer = workspaceWindow.setTimeout(() => {
+			this.stickyScanTimer = null;
+			this.scanStickyMedia();
+		}, 0);
+	}
+
+	private scanStickyMedia() {
+		this.cleanupStickyControllers();
+
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			const view = leaf.view;
+			if (!(view instanceof MarkdownView)) continue;
+
+			for (const media of findStickyMediaCandidates(view.containerEl, view.getMode())) {
+				if (view.file) this.setupStickyMedia(media, view.file.path);
+			}
+		}
+
+		this.cleanupInvalidStickyContexts();
+	}
+
+	private cleanupInvalidStickyContexts() {
+		const validScrollContexts = new Map<HTMLElement, string>();
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			const view = leaf.view;
+			if (!(view instanceof MarkdownView) || !view.file) continue;
+
+			const scrollEl = findStickyScrollContainer(view.containerEl, view.getMode());
+			if (scrollEl) validScrollContexts.set(scrollEl, view.file.path);
+		}
+
+		for (const [scrollEl, entry] of this.stickyControllers) {
+			if (validScrollContexts.get(scrollEl) === entry.sourcePath) continue;
+			entry.controller.destroy();
+			this.stickyControllers.delete(scrollEl);
+		}
+	}
+
+	private cleanupStickyControllers() {
+		for (const [scrollEl, entry] of this.stickyControllers) {
+			if (!scrollEl.isConnected) {
+				entry.controller.destroy();
+				this.stickyControllers.delete(scrollEl);
+				continue;
+			}
+
+			entry.controller.refresh();
+			if (!entry.controller.isActive) {
+				this.stickyControllers.delete(scrollEl);
 			}
 		}
 	}

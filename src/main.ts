@@ -378,6 +378,72 @@ export default class TimestampPlayerPlugin extends Plugin {
             media.removeAttribute("controls");
             const player = new CustomMediaPlayer(media);
             player.build();
+
+            // 监听播放器事件，同步时间戳状态
+            const container = media.closest('.custom-media-player');
+            if (container) {
+                container.addEventListener('media-play', () => {
+                    if (this.activeMedia !== media) {
+                        this.switchToMedia(media);
+                    } else if (this.activeBtn) {
+                        const icon = this.activeBtn.querySelector(".tsp-play-icon");
+                        if (icon) setIcon(icon as HTMLElement, "pause");
+                    }
+                });
+                container.addEventListener('media-pause', () => {
+                    if (this.activeMedia === media && this.activeBtn) {
+                        const icon = this.activeBtn.querySelector(".tsp-play-icon");
+                        if (icon) setIcon(icon as HTMLElement, "play");
+                    }
+                });
+            }
         }
+    }
+
+    private switchToMedia(media: HTMLMediaElement) {
+        this.detachMediaListeners();
+        this.resetActiveBtn();
+
+        if (this.activeMedia && this.activeMedia !== media) {
+            this.activeMedia.pause();
+        }
+
+        this.activeMedia = media;
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        this.activeContainer = view?.containerEl || null;
+
+        if (this.activeContainer) {
+            const buttons = this.getTimestampsForMedia(this.activeContainer, media);
+            if (buttons.length > 0) {
+                const currentTime = media.currentTime;
+                let target = buttons[0];
+                for (const btn of buttons) {
+                    const seconds = parseFloat(btn.getAttribute("data-seconds") || "0");
+                    if (seconds <= currentTime) {
+                        target = btn;
+                    }
+                }
+                this.setActiveBtn(target);
+            }
+        }
+
+        this.boundTimeUpdate = () => this.onTimeUpdate();
+        this.boundEnded = () => this.clearPlaybackState();
+        this.boundPause = () => {
+            if (this.switching) return;
+            if (this.activeBtn) {
+                const icon = this.activeBtn.querySelector(".tsp-play-icon");
+                if (icon) setIcon(icon as HTMLElement, "play");
+            }
+        };
+        media.addEventListener("timeupdate", this.boundTimeUpdate);
+        media.addEventListener("ended", this.boundEnded);
+        media.addEventListener("pause", this.boundPause);
+        media.addEventListener("play", () => {
+            if (this.activeBtn) {
+                const icon = this.activeBtn.querySelector(".tsp-play-icon");
+                if (icon) setIcon(icon as HTMLElement, "pause");
+            }
+        });
     }
 }

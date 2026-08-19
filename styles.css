@@ -1,3 +1,4 @@
+/* 时间戳 */
 .tsp-speaker {
     font-weight: 600;
 }
@@ -24,6 +25,7 @@
     color: var(--text-accent);
     background-color: var(--background-modifier-hover);
 }
+
 .tsp-play-icon {
     display: inline-flex;
     align-items: center;
@@ -48,6 +50,7 @@
     font-family: var(--font-monospace);
 }
 
+/* 媒体吸附 */
 .tsp-sticky-host-context {
     position: relative;
 }
@@ -68,6 +71,7 @@
     box-sizing: border-box;
 }
 
+/* 自定义播放器容器 */
 .custom-media-player {
     position: relative;
     background: var(--background-secondary);
@@ -76,17 +80,42 @@
     margin: 0.5em 0;
 }
 
-.media-controls {
+.custom-media-player .media-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    background: rgba(0, 0, 0, 0.6);
-    color: #fff;
-    flex-wrap: wrap;
+    gap: 6px;
+    padding: 12px 10px 6px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent);
+    border-radius: 0 0 8px 8px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    z-index: 10;
+    flex-wrap: nowrap;
+    box-sizing: border-box;
 }
 
-.media-btn {
+.custom-media-player .media-controls.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.custom-media-player:has(audio){
+    all: initial;
+    position: relative;
+    display: block;
+}
+
+.custom-media-player:has(audio) .media-controls {
+    background: #000;
+    border-radius: 8px;
+}
+
+.custom-media-player .media-btn {
     background: none;
     border: none;
     color: inherit;
@@ -98,20 +127,68 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    color: #fff;
+    flex-shrink: 0;
 }
 
-.media-btn svg {
+.custom-media-player .media-btn svg {
     width: 24px;
     height: 24px;
     stroke: currentColor;
     fill: none;
 }
 
-.media-btn:hover {
+.custom-media-player .media-btn:hover {
     color: var(--text-accent);
 }
 
-.media-progress {
+.custom-media-player .media-volume-container {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.custom-media-player .media-volume-slider {
+    width: 60px;
+    height: 4px;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0 2px;
+    flex-shrink: 0;
+}
+.custom-media-player .media-volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-accent);
+    cursor: pointer;
+}
+.custom-media-player .media-volume-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-accent);
+    cursor: pointer;
+    border: none;
+}
+.custom-media-player .media-volume-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+}
+.custom-media-player .media-volume-slider::-moz-range-track {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+}
+
+.custom-media-player .media-progress {
     flex: 1;
     height: 4px;
     cursor: pointer;
@@ -121,9 +198,10 @@
     appearance: none;
     outline: none;
     margin: 0 4px;
+    min-width: 40px;
 }
 
-.media-progress::-webkit-slider-thumb {
+.custom-media-player .media-progress::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     width: 12px;
@@ -134,7 +212,7 @@
     transition: 0.1s;
 }
 
-.media-progress::-moz-range-thumb {
+.custom-media-player .media-progress::-moz-range-thumb {
     width: 12px;
     height: 12px;
     border-radius: 50%;
@@ -143,23 +221,24 @@
     border: none;
 }
 
-.media-progress::-webkit-slider-runnable-track {
+.custom-media-player .media-progress::-webkit-slider-runnable-track {
     height: 4px;
     background: rgba(255, 255, 255, 0.3);
     border-radius: 2px;
 }
 
-.media-progress::-moz-range-track {
+.custom-media-player .media-progress::-moz-range-track {
     height: 4px;
     background: rgba(255, 255, 255, 0.3);
     border-radius: 2px;
 }
 
-.media-time {
+.custom-media-player .media-time {
     font-family: var(--font-monospace);
     font-size: 0.8em;
     color: #ddd;
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .media-tooltip {
@@ -174,4 +253,14 @@
     z-index: 1000;
     display: none;
     transform: translateX(-50%);
+}
+
+/* 全屏适配 */
+.custom-media-player:fullscreen {
+    border-radius: 0;
+    background: #000;
+}
+.custom-media-player:fullscreen .media-controls {
+    border-radius: 0;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
 }

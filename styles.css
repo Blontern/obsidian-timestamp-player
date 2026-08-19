@@ -1,64 +1,177 @@
 .tsp-speaker {
-	font-weight: 600;
+    font-weight: 600;
 }
 
 .tsp-timestamp {
-	display: inline-flex;
-	align-items: center;
-	gap: 3px;
-	cursor: pointer;
-	padding: 1px 6px;
-	border-radius: 4px;
-	font-size: 0.85em;
-	color: var(--text-muted);
-	transition: all 0.15s ease;
-	vertical-align: baseline;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: var(--text-muted);
+    transition: all 0.15s ease;
+    vertical-align: baseline;
 }
 
 .tsp-timestamp:hover {
-	color: var(--text-accent);
-	background-color: var(--background-modifier-hover);
+    color: var(--text-accent);
+    background-color: var(--background-modifier-hover);
 }
 
 .tsp-timestamp.tsp-active {
-	color: var(--text-accent);
-	background-color: var(--background-modifier-hover);
+    color: var(--text-accent);
+    background-color: var(--background-modifier-hover);
 }
-
 .tsp-play-icon {
-	font-size: 0.7em;
-	opacity: 0.5;
-	transition: opacity 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1em;
+    height: 1em;
+}
+.tsp-play-icon svg {
+    width: 100%;
+    height: 100%;
 }
 
 .tsp-timestamp:hover .tsp-play-icon {
-	opacity: 1;
+    opacity: 1;
 }
 
 .tsp-timestamp.tsp-active .tsp-play-icon {
-	opacity: 1;
+    opacity: 1;
 }
 
 .tsp-time {
-	font-family: var(--font-monospace);
+    font-family: var(--font-monospace);
 }
 
 .tsp-sticky-host-context {
-	position: relative;
+    position: relative;
 }
 
 .tsp-sticky-anchor {
-	height: 0;
-	pointer-events: none;
+    height: 0;
+    pointer-events: none;
 }
 
 .tsp-sticky-media-layer {
-	position: absolute;
-	z-index: var(--layer-popover, 30);
-	box-sizing: border-box;
-	background: var(--background-primary);
+    position: absolute;
+    z-index: var(--layer-popover, 30);
+    box-sizing: border-box;
+    background: var(--background-primary);
 }
 
 .tsp-sticky-placeholder {
-	box-sizing: border-box;
+    box-sizing: border-box;
+}
+
+.custom-media-player {
+    position: relative;
+    background: var(--background-secondary);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 0.5em 0;
+}
+
+.media-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    flex-wrap: wrap;
+}
+
+.media-btn {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.media-btn svg {
+    width: 24px;
+    height: 24px;
+    stroke: currentColor;
+    fill: none;
+}
+
+.media-btn:hover {
+    color: var(--text-accent);
+}
+
+.media-progress {
+    flex: 1;
+    height: 4px;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    -webkit-appearance: none;
+    appearance: none;
+    outline: none;
+    margin: 0 4px;
+}
+
+.media-progress::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-accent);
+    cursor: pointer;
+    transition: 0.1s;
+}
+
+.media-progress::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-accent);
+    cursor: pointer;
+    border: none;
+}
+
+.media-progress::-webkit-slider-runnable-track {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+}
+
+.media-progress::-moz-range-track {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+}
+
+.media-time {
+    font-family: var(--font-monospace);
+    font-size: 0.8em;
+    color: #ddd;
+    white-space: nowrap;
+}
+
+.media-tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: rgba(0, 0, 0, 0.8);
+    color: #fff;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    font-family: var(--font-monospace);
+    z-index: 1000;
+    display: none;
+    transform: translateX(-50%);
 }

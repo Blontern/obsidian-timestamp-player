@@ -34,6 +34,8 @@ export function findStickyMediaContext(el: HTMLElement): StickyMediaContext | nu
 }
 
 function resolveWrapper(media: HTMLMediaElement, scrollEl: HTMLElement): HTMLElement {
+    const player = media.closest<HTMLElement>(".custom-media-player");
+    if (player && scrollEl.contains(player)) return player;
     const cand = media.closest<HTMLElement>(".internal-embed, .media-embed");
     return cand && scrollEl.contains(cand) ? cand : media;
 }

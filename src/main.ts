@@ -1,5 +1,6 @@
-import { Plugin, MarkdownPostProcessorContext, MarkdownView, TFile } from "obsidian";
+import { Plugin, MarkdownPostProcessorContext, MarkdownView, TFile, setIcon } from "obsidian";
 import { StickyMediaManager } from "./sticky-media";
+import { CustomMediaPlayer } from "./custom-player";
 
 const SPEAKER_LINE_RE = /^(.+?)\s+((?:(?:\d{1,3}:)?\d{1,3}:\d{2}(?:\.\d{1,3})?))\s*$/;
 const INLINE_TS_RE = /(?:(?:(\d{1,3}):)?(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?)/g;
@@ -16,6 +17,7 @@ export default class TimestampPlayerPlugin extends Plugin {
             async (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
                 if (!(await this.hasMediaEmbed(ctx))) return;
                 this.processTimestamps(el);
+                this.rewriteMediaElements(el);
                 this.stickyManager.setupForElement(el, ctx.sourcePath);
             }
         );
@@ -159,7 +161,8 @@ export default class TimestampPlayerPlugin extends Plugin {
         btn.setAttribute("role", "button");
         btn.setAttribute("aria-label", `Play from ${timeStr}`);
 
-        const icon = createSpan({ cls: "tsp-play-icon", text: "▶" });
+        const icon = createSpan({ cls: "tsp-play-icon" });
+        setIcon(icon, "play");
         btn.appendChild(icon);
         btn.appendChild(createSpan({ cls: "tsp-time", text: timeStr }));
 
@@ -216,7 +219,7 @@ export default class TimestampPlayerPlugin extends Plugin {
             if (this.switching) return;
             if (this.activeBtn) {
                 const icon = this.activeBtn.querySelector(".tsp-play-icon");
-                if (icon) icon.textContent = "▶";
+                if (icon) setIcon(icon as HTMLElement, "play");
             }
         };
         media.addEventListener("timeupdate", this.boundTimeUpdate);
@@ -225,7 +228,7 @@ export default class TimestampPlayerPlugin extends Plugin {
         media.addEventListener("play", () => {
             if (this.activeBtn) {
                 const icon = this.activeBtn.querySelector(".tsp-play-icon");
-                if (icon) icon.textContent = "⏸";
+                if (icon) setIcon(icon as HTMLElement, "pause");
             }
         });
     }
@@ -328,19 +331,22 @@ export default class TimestampPlayerPlugin extends Plugin {
     private setActiveBtn(btn: HTMLElement) {
         if (this.activeBtn) {
             const prevIcon = this.activeBtn.querySelector(".tsp-play-icon");
-            if (prevIcon) prevIcon.textContent = "▶";
+            if (prevIcon) setIcon(prevIcon as HTMLElement, "play");
             this.activeBtn.removeClass("tsp-active");
         }
         btn.addClass("tsp-active");
         const icon = btn.querySelector(".tsp-play-icon");
-        if (icon) icon.textContent = "⏸";
+        if (icon) {
+            const isPlaying = this.activeMedia && !this.activeMedia.paused;
+            setIcon(icon as HTMLElement, isPlaying ? "pause" : "play");
+        }
         this.activeBtn = btn;
     }
 
     private resetActiveBtn() {
         if (this.activeBtn) {
             const icon = this.activeBtn.querySelector(".tsp-play-icon");
-            if (icon) icon.textContent = "▶";
+            if (icon) setIcon(icon as HTMLElement, "play");
             this.activeBtn.removeClass("tsp-active");
             this.activeBtn = null;
         }
@@ -362,5 +368,16 @@ export default class TimestampPlayerPlugin extends Plugin {
         this.resetActiveBtn();
         this.activeMedia = null;
         this.activeContainer = null;
+    }
+
+    private rewriteMediaElements(el: HTMLElement) {
+        const mediaElements = el.querySelectorAll<HTMLMediaElement>("audio, video");
+        for (const media of mediaElements) {
+            if (media.hasAttribute("data-custom-player")) continue;
+            media.setAttribute("data-custom-player", "true");
+            media.removeAttribute("controls");
+            const player = new CustomMediaPlayer(media);
+            player.build();
+        }
     }
 }

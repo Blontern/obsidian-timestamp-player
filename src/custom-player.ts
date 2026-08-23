@@ -289,6 +289,14 @@ export class CustomMediaPlayer {
                     });
                     const rect = (e.target as HTMLElement).getBoundingClientRect();
                     subMenu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
+
+                    if (document.fullscreenElement === this.container) {
+                        const subMenuEl = (subMenu as any).dom;
+                        if (subMenuEl) {
+                            this.container.appendChild(subMenuEl);
+                            subMenuEl.style.zIndex = '9999';
+                        }
+                    }
                 });
         });
 
@@ -322,6 +330,14 @@ export class CustomMediaPlayer {
 
         const rect = (e.target as HTMLElement).getBoundingClientRect();
         menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
+
+        if (document.fullscreenElement === this.container) {
+            const menuEl = (menu as any).dom;
+            if (menuEl) {
+                this.container.appendChild(menuEl);
+                menuEl.style.zIndex = '9999';
+            }
+        }
     }
 
     private createButton(iconName: string, onClick: (e: MouseEvent) => void): HTMLElement {

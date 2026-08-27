@@ -15,9 +15,14 @@ export class CustomMediaPlayer {
     private hideTimeout: number | null = null;
     private isMouseOver = false;
 
+    private lastFrameTime: number | null = null;
+    private measuredFrameDuration: number | null = null;
+    private frameCallbackBound: boolean = false;
+
     constructor(private media: HTMLMediaElement) {
         this.container = document.createElement("div");
         this.container.className = "custom-media-player";
+        this.container.setAttribute("tabindex", "0");
 
         // ----- 音频特殊处理：设置最小高度，隐藏媒体元素（无画面） -----
         if (media.tagName === "AUDIO") {
@@ -145,6 +150,29 @@ export class CustomMediaPlayer {
         this.media.addEventListener("loadedmetadata", () => this.updateDuration());
         this.media.addEventListener("seeked", () => this.updateProgress());
 
+        // ----- 键盘快捷键 -----
+        this.container.addEventListener("keydown", (e) => {
+            if (this.media.readyState < 1) return;
+            let handled = true;
+            if (e.shiftKey && e.key === "ArrowLeft") {
+                this.seekKeyframe(-1);
+            } else if (e.shiftKey && e.key === "ArrowRight") {
+                this.seekKeyframe(1);
+            } else if (e.key === "ArrowLeft") {
+                this.seek(-5);
+            } else if (e.key === "ArrowRight") {
+                this.seek(5);
+            } else if (e.key === "d" || e.key === "D") {
+                this.seekFrame(-1);
+            } else if (e.key === "f" || e.key === "F") {
+                this.seekFrame(1);
+            } else {
+                handled = false;
+            }
+            if (handled) e.preventDefault();
+        });
+
+        this.setupFrameTracking();
         this.updateVolumeIcon();
     }
 
@@ -165,6 +193,49 @@ export class CustomMediaPlayer {
                 this.hideTimeout = null;
             }, 1000);
         }
+    }
+
+    // ----- 快退快进 -----
+    private seek(offset: number) {
+        if (!this.media.duration) return;
+        this.media.currentTime = Math.max(0, Math.min(this.media.duration, this.media.currentTime + offset));
+    }
+
+    private seekFrame(dir: 1 | -1) {
+        this.seek(dir * (this.measuredFrameDuration ?? 1 / 30));
+    }
+
+    private seekKeyframe(dir: 1 | -1) {
+        if (!this.media.duration) return;
+        const step = 0.5 * dir;
+        const original = this.media.currentTime;
+        const target = original + step;
+        this.media.addEventListener("seeked", () => {
+            if (Math.abs(this.media.currentTime - target) < 0.01) {
+                this.media.currentTime = original + step * 5;
+            }
+        }, { once: true });
+        this.media.currentTime = target;
+    }
+
+    private setupFrameTracking() {
+        const video = this.media as HTMLVideoElement;
+        if (!('requestVideoFrameCallback' in video) || this.frameCallbackBound) return;
+        this.frameCallbackBound = true;
+
+        const callback = (_now: number, meta: VideoFrameCallbackMetadata) => {
+            const t = meta.presentationTime;
+            if (this.lastFrameTime !== null) {
+                const dur = t - this.lastFrameTime;
+                if (dur > 0.001 && dur < 1.0) this.measuredFrameDuration = dur;
+            }
+            this.lastFrameTime = t;
+            if (!this.media.paused) video.requestVideoFrameCallback(callback);
+        };
+
+        this.media.addEventListener("play", () => {
+            video.requestVideoFrameCallback(callback);
+        });
     }
 
     private resetHideTimer() {
@@ -327,6 +398,42 @@ export class CustomMediaPlayer {
                 });
             }
         }
+
+        menu.addItem((item) => {
+            item.setTitle("快退 5 秒")
+                .setIcon("rewind")
+                .onClick(() => this.seek(-5));
+        });
+
+        menu.addItem((item) => {
+            item.setTitle("快进 5 秒")
+                .setIcon("fast-forward")
+                .onClick(() => this.seek(5));
+        });
+
+        menu.addItem((item) => {
+            item.setTitle("上一帧")
+                .setIcon("step-back")
+                .onClick(() => this.seekFrame(-1));
+        });
+
+        menu.addItem((item) => {
+            item.setTitle("下一帧")
+                .setIcon("step-forward")
+                .onClick(() => this.seekFrame(1));
+        });
+
+        menu.addItem((item) => {
+            item.setTitle("上一关键帧")
+                .setIcon("step-back")
+                .onClick(() => this.seekKeyframe(-1));
+        });
+
+        menu.addItem((item) => {
+            item.setTitle("下一关键帧")
+                .setIcon("step-forward")
+                .onClick(() => this.seekKeyframe(1));
+        });
 
         const rect = (e.target as HTMLElement).getBoundingClientRect();
         menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });

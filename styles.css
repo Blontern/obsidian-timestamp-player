@@ -108,6 +108,8 @@
     all: initial;
     position: relative;
     display: block;
+    background: #ccc;
+    min-height: 90px;
 }
 
 .custom-media-player:has(audio) .media-controls {
@@ -263,4 +265,30 @@
 .custom-media-player:fullscreen .media-controls {
     border-radius: 0;
     background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+}
+
+/* 字幕容器 */
+.tsp-subtitle-container {
+    position: absolute;
+    bottom: 60px;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    pointer-events: none;
+    z-index: 5;
+}
+
+/* 字幕文本 */
+.tsp-subtitle-text {
+    display: inline-block;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 1.2em;
+    font-family: var(--font-monospace), sans-serif;
+    max-width: 80%;
+    margin: 0 auto;
+    word-break: break-word;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
 }

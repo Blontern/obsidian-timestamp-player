@@ -69,23 +69,17 @@ export default class TimestampPlayerPlugin extends Plugin {
         }
     }
 
-	/**
-	 * 解析时间字符串，返回总秒数（浮点数）
-	 * 支持格式: [hh:]mm:ss[.SSS]
-	 */
     private parseTimeString(timeStr: string): number {
         let hours = 0, minutes = 0, seconds = 0, millis = 0;
         const trimmed = timeStr.trim();
         if (!trimmed) return 0;
 
-		// 分离毫秒部分
         let mainPart = trimmed;
         let millisPart = "";
         const dotIndex = trimmed.indexOf(".");
         if (dotIndex !== -1) {
             mainPart = trimmed.substring(0, dotIndex);
             millisPart = trimmed.substring(dotIndex + 1);
-			// 解析毫秒，数字可能不足三位，按比例计算（如 .5 → 500ms）
             if (millisPart) {
                 const millisNum = parseFloat("0." + millisPart);
                 if (!isNaN(millisNum)) {
@@ -96,11 +90,9 @@ export default class TimestampPlayerPlugin extends Plugin {
 
         const parts = mainPart.split(":").map(s => parseInt(s, 10));
         if (parts.length === 2) {
-			// mm:ss
             minutes = parts[0] || 0;
             seconds = parts[1] || 0;
         } else if (parts.length === 3) {
-			// hh:mm:ss
             hours = parts[0] || 0;
             minutes = parts[1] || 0;
             seconds = parts[2] || 0;
@@ -175,7 +167,6 @@ export default class TimestampPlayerPlugin extends Plugin {
     }
 
     private togglePlay(btn: HTMLElement, seconds: number) {
-		// If clicking the active button, toggle pause/play
         if (this.activeBtn === btn && this.activeMedia) {
             if (!this.activeMedia.paused) {
                 this.activeMedia.pause();
@@ -194,12 +185,10 @@ export default class TimestampPlayerPlugin extends Plugin {
 
         this.releaseCurrentMedia();
 
-		// Pause previous media if different
         if (this.activeMedia && this.activeMedia !== media && !this.activeMedia.paused) {
             this.activeMedia.pause();
         }
 
-		// Seek and play the matched media
         media.currentTime = Math.min(seconds, media.duration || Infinity);
         media.play().catch(() => {});
 
@@ -207,33 +196,24 @@ export default class TimestampPlayerPlugin extends Plugin {
         this.activeContainer = container;
         this.setActiveBtn(btn);
 
-		// Attach listeners for follow-along and cleanup
         this.bindMediaListeners(media);
     }
 
-    /**
-     * 查找按钮所控制的媒体元素。
-     * 一次查询所有相关元素，遍历时维护“最后一个代表元素”。
-     */
     private findMediaForBtn(container: HTMLElement, btn: HTMLElement): HTMLMediaElement | null {
         const all = container.querySelectorAll<HTMLElement>("audio, video, .tsp-sticky-anchor, .tsp-timestamp");
         let lastMedia: HTMLMediaElement | null = null;
 
         for (const el of all) {
-            // 如果是媒体元素
             if (el.tagName === "AUDIO" || el.tagName === "VIDEO") {
                 const media = el as HTMLMediaElement;
-                // 只有未被浮动的媒体才作为代表
                 if (!this.stickyManager.getAnchorForMedia(media)) {
                     lastMedia = media;
                 }
             }
-            // 如果是锚点
             else if (el.classList.contains("tsp-sticky-anchor")) {
                 const media = this.stickyManager.getMediaForAnchor(el);
                 if (media) lastMedia = media;
             }
-            // 如果是时间戳按钮
             else if (el === btn) {
                 return lastMedia;
             }
@@ -241,10 +221,6 @@ export default class TimestampPlayerPlugin extends Plugin {
         return lastMedia;
     }
 
-    /**
-     * 获取属于某个媒体元素的所有时间戳按钮。
-     * 先找到代表元素（媒体或锚点）的位置，然后向后收集 timestamp，直到遇到下一个代表元素。
-     */
     private getTimestampsForMedia(container: HTMLElement, media: HTMLMediaElement): HTMLElement[] {
         const representative = this.stickyManager.getAnchorForMedia(media) || media;
         const all = container.querySelectorAll<HTMLElement>("audio, video, .tsp-sticky-anchor, .tsp-timestamp");
@@ -259,13 +235,10 @@ export default class TimestampPlayerPlugin extends Plugin {
         if (repIndex === -1) return [];
 
         const result: HTMLElement[] = [];
-        // 从代表元素之后开始收集
         for (let i = repIndex + 1; i < all.length; i++) {
             const el = all[i];
-            // 判断是否为“下一个代表元素”
             let isNextRep = false;
             if (el.tagName === "AUDIO" || el.tagName === "VIDEO") {
-                // 未浮动的媒体是代表
                 if (!this.stickyManager.getAnchorForMedia(el as HTMLMediaElement)) {
                     isNextRep = true;
                 }
@@ -377,7 +350,7 @@ export default class TimestampPlayerPlugin extends Plugin {
             if (media.hasAttribute("data-custom-player")) continue;
             media.setAttribute("data-custom-player", "true");
             media.removeAttribute("controls");
-            const player = new CustomMediaPlayer(media);
+            const player = new CustomMediaPlayer(media, this.app);  // 传入 app
             player.build();
 
             const container = media.closest('.custom-media-player');

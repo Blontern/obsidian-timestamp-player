@@ -1,4 +1,5 @@
-import { Menu, Notice, setIcon } from "obsidian";
+import { Menu, Notice, setIcon, App } from "obsidian";
+import { SubtitleManager } from "./subtitle";
 
 export class CustomMediaPlayer {
     private container: HTMLElement;
@@ -19,16 +20,12 @@ export class CustomMediaPlayer {
     private measuredFrameDuration: number | null = null;
     private frameCallbackBound: boolean = false;
 
-    constructor(private media: HTMLMediaElement) {
+    private subtitleManager: SubtitleManager;
+
+    constructor(private media: HTMLMediaElement, private app: App) {
         this.container = document.createElement("div");
         this.container.className = "custom-media-player";
         this.container.setAttribute("tabindex", "0");
-
-        // ----- 音频特殊处理：设置最小高度，隐藏媒体元素（无画面） -----
-        if (media.tagName === "AUDIO") {
-            this.container.style.minHeight = "50px";
-            media.style.display = "none";  // 音频无需显示元素，仅用控制栏
-        }
 
         media.parentNode?.insertBefore(this.container, media);
         this.container.appendChild(media);
@@ -95,6 +92,9 @@ export class CustomMediaPlayer {
 
         // ----- 将控制栏加入容器 -----
         this.container.appendChild(this.controls);
+
+        // ---------- 创建字幕管理器 ----------
+        this.subtitleManager = new SubtitleManager(this.media, this.container, this.app);
 
         // 初始显示控制栏
         this.showControls();

@@ -41,7 +41,7 @@ export default class TimestampPlayerPlugin extends Plugin {
 
     private processTimestamps(el: HTMLElement) {
         const paragraphs = el.querySelectorAll("p");
-
+        
         for (const p of Array.from(paragraphs)) {
             const nodesToProcess: { node: Text; type: "speaker" | "inline"; match: RegExpMatchArray }[] = [];
 
@@ -203,7 +203,7 @@ export default class TimestampPlayerPlugin extends Plugin {
         const all = container.querySelectorAll<HTMLElement>("audio, video, .tsp-sticky-anchor, .tsp-timestamp");
         let lastMedia: HTMLMediaElement | null = null;
 
-        for (const el of all) {
+        for (const el of Array.from(all)) {
             if (el.tagName === "AUDIO" || el.tagName === "VIDEO") {
                 const media = el as HTMLMediaElement;
                 if (!this.stickyManager.getAnchorForMedia(media)) {
@@ -346,11 +346,11 @@ export default class TimestampPlayerPlugin extends Plugin {
 
     private rewriteMediaElements(el: HTMLElement) {
         const mediaElements = el.querySelectorAll<HTMLMediaElement>("audio, video");
-        for (const media of mediaElements) {
+        for (const media of Array.from(mediaElements)) {
             if (media.hasAttribute("data-custom-player")) continue;
             media.setAttribute("data-custom-player", "true");
             media.removeAttribute("controls");
-            const player = new CustomMediaPlayer(media, this.app);  // 传入 app
+            const player = new CustomMediaPlayer(media, this.app);
             player.build();
 
             const container = media.closest('.custom-media-player');

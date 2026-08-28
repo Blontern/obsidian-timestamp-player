@@ -153,7 +153,6 @@ export default class TimestampPlayerPlugin extends Plugin {
     private boundTimeUpdate: (() => void) | null = null;
     private boundEnded: (() => void) | null = null;
     private boundPause: (() => void) | null = null;
-    private switching = false;
 
     private createTimestampBtn(timeStr: string, totalSeconds: number): HTMLSpanElement {
         const btn = createSpan({ cls: "tsp-timestamp" });
@@ -193,16 +192,12 @@ export default class TimestampPlayerPlugin extends Plugin {
         const media = this.findMediaForBtn(container, btn);
         if (!media) return;
 
-		// Detach old listeners before pausing to avoid stale callbacks
-        this.detachMediaListeners();
-        this.resetActiveBtn();
+        this.releaseCurrentMedia();
 
 		// Pause previous media if different
-        this.switching = true;
         if (this.activeMedia && this.activeMedia !== media && !this.activeMedia.paused) {
             this.activeMedia.pause();
         }
-        this.switching = false;
 
 		// Seek and play the matched media
         media.currentTime = Math.min(seconds, media.duration || Infinity);
@@ -213,24 +208,7 @@ export default class TimestampPlayerPlugin extends Plugin {
         this.setActiveBtn(btn);
 
 		// Attach listeners for follow-along and cleanup
-        this.boundTimeUpdate = () => this.onTimeUpdate();
-        this.boundEnded = () => this.clearPlaybackState();
-        this.boundPause = () => {
-            if (this.switching) return;
-            if (this.activeBtn) {
-                const icon = this.activeBtn.querySelector(".tsp-play-icon");
-                if (icon) setIcon(icon as HTMLElement, "play");
-            }
-        };
-        media.addEventListener("timeupdate", this.boundTimeUpdate);
-        media.addEventListener("ended", this.boundEnded);
-        media.addEventListener("pause", this.boundPause);
-        media.addEventListener("play", () => {
-            if (this.activeBtn) {
-                const icon = this.activeBtn.querySelector(".tsp-play-icon");
-                if (icon) setIcon(icon as HTMLElement, "pause");
-            }
-        });
+        this.bindMediaListeners(media);
     }
 
     /**
@@ -303,17 +281,11 @@ export default class TimestampPlayerPlugin extends Plugin {
         return result;
     }
 
-    private onTimeUpdate() {
-        if (!this.activeMedia || !this.activeContainer) return;
-        const currentTime = this.activeMedia.currentTime;
-
-        const buttons = this.getTimestampsForMedia(this.activeContainer, this.activeMedia)
-            .map((el) => ({
-                el,
-                seconds: parseFloat(el.getAttribute("data-seconds") || "0"),
-            }))
+    private findActiveTimestamp(container: HTMLElement, media: HTMLMediaElement, time?: number): HTMLElement | null {
+        const currentTime = time ?? media.currentTime;
+        const buttons = this.getTimestampsForMedia(container, media)
+            .map((el) => ({ el, seconds: parseFloat(el.getAttribute("data-seconds") || "0") }))
             .sort((a, b) => a.seconds - b.seconds);
-
         let target: HTMLElement | null = null;
         for (const b of buttons) {
             if (b.seconds <= currentTime) {
@@ -322,33 +294,31 @@ export default class TimestampPlayerPlugin extends Plugin {
                 break;
             }
         }
+        return target;
+    }
 
+    private onTimeUpdate() {
+        if (!this.activeMedia || !this.activeContainer) return;
+        const target = this.findActiveTimestamp(this.activeContainer, this.activeMedia);
         if (target && target !== this.activeBtn) {
             this.setActiveBtn(target);
         }
     }
 
-    private setActiveBtn(btn: HTMLElement) {
+    private setActiveBtn(btn?: HTMLElement | null) {
         if (this.activeBtn) {
             const prevIcon = this.activeBtn.querySelector(".tsp-play-icon");
             if (prevIcon) setIcon(prevIcon as HTMLElement, "play");
             this.activeBtn.removeClass("tsp-active");
         }
-        btn.addClass("tsp-active");
-        const icon = btn.querySelector(".tsp-play-icon");
-        if (icon) {
-            const isPlaying = this.activeMedia && !this.activeMedia.paused;
-            setIcon(icon as HTMLElement, isPlaying ? "pause" : "play");
-        }
-        this.activeBtn = btn;
-    }
-
-    private resetActiveBtn() {
-        if (this.activeBtn) {
-            const icon = this.activeBtn.querySelector(".tsp-play-icon");
-            if (icon) setIcon(icon as HTMLElement, "play");
-            this.activeBtn.removeClass("tsp-active");
-            this.activeBtn = null;
+        this.activeBtn = btn ?? null;
+        if (btn) {
+            btn.addClass("tsp-active");
+            const icon = btn.querySelector(".tsp-play-icon");
+            if (icon) {
+                const isPlaying = this.activeMedia && !this.activeMedia.paused;
+                setIcon(icon as HTMLElement, isPlaying ? "pause" : "play");
+            }
         }
     }
 
@@ -363,74 +333,15 @@ export default class TimestampPlayerPlugin extends Plugin {
         this.boundPause = null;
     }
 
-    private clearPlaybackState() {
+    private releaseCurrentMedia() {
         this.detachMediaListeners();
-        this.resetActiveBtn();
-        this.activeMedia = null;
-        this.activeContainer = null;
+        this.setActiveBtn(null);
     }
 
-    private rewriteMediaElements(el: HTMLElement) {
-        const mediaElements = el.querySelectorAll<HTMLMediaElement>("audio, video");
-        for (const media of mediaElements) {
-            if (media.hasAttribute("data-custom-player")) continue;
-            media.setAttribute("data-custom-player", "true");
-            media.removeAttribute("controls");
-            const player = new CustomMediaPlayer(media);
-            player.build();
-
-            // 监听播放器事件，同步时间戳状态
-            const container = media.closest('.custom-media-player');
-            if (container) {
-                container.addEventListener('media-play', () => {
-                    if (this.activeMedia !== media) {
-                        this.switchToMedia(media);
-                    } else if (this.activeBtn) {
-                        const icon = this.activeBtn.querySelector(".tsp-play-icon");
-                        if (icon) setIcon(icon as HTMLElement, "pause");
-                    }
-                });
-                container.addEventListener('media-pause', () => {
-                    if (this.activeMedia === media && this.activeBtn) {
-                        const icon = this.activeBtn.querySelector(".tsp-play-icon");
-                        if (icon) setIcon(icon as HTMLElement, "play");
-                    }
-                });
-            }
-        }
-    }
-
-    private switchToMedia(media: HTMLMediaElement) {
-        this.detachMediaListeners();
-        this.resetActiveBtn();
-
-        if (this.activeMedia && this.activeMedia !== media) {
-            this.activeMedia.pause();
-        }
-
-        this.activeMedia = media;
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        this.activeContainer = view?.containerEl || null;
-
-        if (this.activeContainer) {
-            const buttons = this.getTimestampsForMedia(this.activeContainer, media);
-            if (buttons.length > 0) {
-                const currentTime = media.currentTime;
-                let target = buttons[0];
-                for (const btn of buttons) {
-                    const seconds = parseFloat(btn.getAttribute("data-seconds") || "0");
-                    if (seconds <= currentTime) {
-                        target = btn;
-                    }
-                }
-                this.setActiveBtn(target);
-            }
-        }
-
+    private bindMediaListeners(media: HTMLMediaElement) {
         this.boundTimeUpdate = () => this.onTimeUpdate();
         this.boundEnded = () => this.clearPlaybackState();
         this.boundPause = () => {
-            if (this.switching) return;
             if (this.activeBtn) {
                 const icon = this.activeBtn.querySelector(".tsp-play-icon");
                 if (icon) setIcon(icon as HTMLElement, "play");
@@ -445,5 +356,59 @@ export default class TimestampPlayerPlugin extends Plugin {
                 if (icon) setIcon(icon as HTMLElement, "pause");
             }
         });
+    }
+
+    private clearPlaybackState() {
+        this.releaseCurrentMedia();
+        this.activeMedia = null;
+        this.activeContainer = null;
+    }
+
+    private updateActiveIcon(paused: boolean) {
+        if (this.activeBtn) {
+            const icon = this.activeBtn.querySelector(".tsp-play-icon");
+            if (icon) setIcon(icon as HTMLElement, paused ? "play" : "pause");
+        }
+    }
+
+    private rewriteMediaElements(el: HTMLElement) {
+        const mediaElements = el.querySelectorAll<HTMLMediaElement>("audio, video");
+        for (const media of mediaElements) {
+            if (media.hasAttribute("data-custom-player")) continue;
+            media.setAttribute("data-custom-player", "true");
+            media.removeAttribute("controls");
+            const player = new CustomMediaPlayer(media);
+            player.build();
+
+            const container = media.closest('.custom-media-player');
+            if (container) {
+                container.addEventListener('media-play', () => {
+                    if (this.activeMedia !== media) this.switchToMedia(media);
+                    else this.updateActiveIcon(false);
+                });
+                container.addEventListener('media-pause', () => {
+                    if (this.activeMedia === media) this.updateActiveIcon(true);
+                });
+            }
+        }
+    }
+
+    private switchToMedia(media: HTMLMediaElement) {
+        this.releaseCurrentMedia();
+
+        if (this.activeMedia && this.activeMedia !== media && !this.activeMedia.paused) {
+            this.activeMedia.pause();
+        }
+
+        this.activeMedia = media;
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        this.activeContainer = view?.containerEl || null;
+
+        if (this.activeContainer) {
+            const target = this.findActiveTimestamp(this.activeContainer, media);
+            if (target) this.setActiveBtn(target);
+        }
+
+        this.bindMediaListeners(media);
     }
 }

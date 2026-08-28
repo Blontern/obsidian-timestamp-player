@@ -162,9 +162,9 @@ export class CustomMediaPlayer {
                 this.seek(-5);
             } else if (e.key === "ArrowRight") {
                 this.seek(5);
-            } else if (e.key === "d" || e.key === "D") {
+            } else if (e.key.toLowerCase() === "d") {
                 this.seekFrame(-1);
-            } else if (e.key === "f" || e.key === "F") {
+            } else if (e.key.toLowerCase() === "f") {
                 this.seekFrame(1);
             } else {
                 handled = false;
@@ -187,12 +187,11 @@ export class CustomMediaPlayer {
             this.showControls();
             return;
         }
-        if (this.hideTimeout === null) {
-            this.hideTimeout = window.setTimeout(() => {
-                this.controls.classList.remove("is-visible");
-                this.hideTimeout = null;
-            }, 1000);
-        }
+        this.clearHideTimer();
+        this.hideTimeout = window.setTimeout(() => {
+            this.controls.classList.remove("is-visible");
+            this.hideTimeout = null;
+        }, 1000);
     }
 
     // ----- 快退快进 -----
@@ -239,13 +238,8 @@ export class CustomMediaPlayer {
     }
 
     private resetHideTimer() {
-        this.clearHideTimer();
-        if (!this.controls.classList.contains("is-visible")) {
-            this.showControls();
-        }
-        if (!this.media.paused) {
-            this.hideControls();
-        }
+        this.showControls();
+        if (!this.media.paused) this.hideControls();
     }
 
     private clearHideTimer() {
@@ -339,12 +333,12 @@ export class CustomMediaPlayer {
                     navigator.clipboard.writeText(ts)
                         .then(() => new Notice("时间戳已复制: " + ts))
                         .catch(() => {
-                            const textarea = document.createElement("textarea");
-                            textarea.value = ts;
-                            document.body.appendChild(textarea);
-                            textarea.select();
+                            const ta = document.createElement("textarea");
+                            ta.value = ts;
+                            document.body.appendChild(ta);
+                            ta.select();
                             document.execCommand("copy");
-                            textarea.remove();
+                            ta.remove();
                             new Notice("时间戳已复制: " + ts);
                         });
                 });
@@ -355,19 +349,10 @@ export class CustomMediaPlayer {
                 .setIcon("speed")
                 .onClick(() => {
                     const subMenu = new Menu();
-                    [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].forEach(sp => {
-                        subMenu.addItem(sub => sub.setTitle(sp + "x").onClick(() => this.media.playbackRate = sp));
-                    });
-                    const rect = (e.target as HTMLElement).getBoundingClientRect();
-                    subMenu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
-
-                    if (document.fullscreenElement === this.container) {
-                        const subMenuEl = (subMenu as any).dom;
-                        if (subMenuEl) {
-                            this.container.appendChild(subMenuEl);
-                            subMenuEl.style.zIndex = '9999';
-                        }
-                    }
+                    [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].forEach(sp =>
+                        subMenu.addItem(sub => sub.setTitle(sp + "x").onClick(() => this.media.playbackRate = sp))
+                    );
+                    this.showMenuAt(subMenu, e.target as HTMLElement);
                 });
         });
 
@@ -376,11 +361,7 @@ export class CustomMediaPlayer {
                 item.setTitle("全屏")
                     .setIcon("expand")
                     .onClick(() => {
-                        if (document.fullscreenElement) {
-                            document.exitFullscreen().catch(() => {});
-                        } else {
-                            this.container.requestFullscreen?.().catch(() => {});
-                        }
+                        document.fullscreenElement ? document.exitFullscreen().catch(() => {}) : this.container.requestFullscreen?.().catch(() => {});
                     });
             });
 
@@ -389,60 +370,33 @@ export class CustomMediaPlayer {
                     item.setTitle("画中画")
                         .setIcon("picture-in-picture")
                         .onClick(() => {
-                            if (document.pictureInPictureElement) {
-                                document.exitPictureInPicture?.().catch(() => {});
-                            } else {
-                                (this.media as HTMLVideoElement).requestPictureInPicture?.().catch(() => {});
-                            }
+                            document.pictureInPictureElement ? document.exitPictureInPicture?.().catch(() => {}) : (this.media as HTMLVideoElement).requestPictureInPicture?.().catch(() => {});
                         });
                 });
             }
         }
 
-        menu.addItem((item) => {
-            item.setTitle("快退 5 秒")
-                .setIcon("rewind")
-                .onClick(() => this.seek(-5));
-        });
+        const seekItems = [
+            { t: "快退 5 秒", i: "rewind", a: () => this.seek(-5) },
+            { t: "快进 5 秒", i: "fast-forward", a: () => this.seek(5) },
+            { t: "上一帧", i: "step-back", a: () => this.seekFrame(-1) },
+            { t: "下一帧", i: "step-forward", a: () => this.seekFrame(1) },
+            { t: "上一关键帧", i: "step-back", a: () => this.seekKeyframe(-1) },
+            { t: "下一关键帧", i: "step-forward", a: () => this.seekKeyframe(1) },
+        ];
+        seekItems.forEach(item => menu.addItem(m => m.setTitle(item.t).setIcon(item.i).onClick(item.a)));
 
-        menu.addItem((item) => {
-            item.setTitle("快进 5 秒")
-                .setIcon("fast-forward")
-                .onClick(() => this.seek(5));
-        });
+        this.showMenuAt(menu, e.target as HTMLElement);
+    }
 
-        menu.addItem((item) => {
-            item.setTitle("上一帧")
-                .setIcon("step-back")
-                .onClick(() => this.seekFrame(-1));
-        });
-
-        menu.addItem((item) => {
-            item.setTitle("下一帧")
-                .setIcon("step-forward")
-                .onClick(() => this.seekFrame(1));
-        });
-
-        menu.addItem((item) => {
-            item.setTitle("上一关键帧")
-                .setIcon("step-back")
-                .onClick(() => this.seekKeyframe(-1));
-        });
-
-        menu.addItem((item) => {
-            item.setTitle("下一关键帧")
-                .setIcon("step-forward")
-                .onClick(() => this.seekKeyframe(1));
-        });
-
-        const rect = (e.target as HTMLElement).getBoundingClientRect();
+    private showMenuAt(menu: Menu, target: HTMLElement) {
+        const rect = target.getBoundingClientRect();
         menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
-
         if (document.fullscreenElement === this.container) {
-            const menuEl = (menu as any).dom;
-            if (menuEl) {
-                this.container.appendChild(menuEl);
-                menuEl.style.zIndex = '9999';
+            const el = (menu as any).dom;
+            if (el) {
+                this.container.appendChild(el);
+                el.style.zIndex = '9999';
             }
         }
     }

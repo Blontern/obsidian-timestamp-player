@@ -1,4 +1,3 @@
-// subtitle.ts
 import { App, TFile } from "obsidian";
 
 interface SubtitleEntry {
@@ -12,6 +11,7 @@ export class SubtitleManager {
     private textElement: HTMLElement;
     private entries: SubtitleEntry[] = [];
     private updateBound: () => void;
+    private enabled: boolean = true;
 
     constructor(
         private media: HTMLMediaElement,
@@ -32,6 +32,17 @@ export class SubtitleManager {
 
         // 异步加载字幕
         this.loadSubtitles().catch(console.error);
+    }
+
+    // 设置启用状态
+    setEnabled(enabled: boolean): void {
+        this.enabled = enabled;
+        this.container.style.display = enabled ? '' : 'none';
+    }
+
+    // 获取启用状态
+    isEnabled(): boolean {
+        return this.enabled;
     }
 
     /**
@@ -212,11 +223,7 @@ export class SubtitleManager {
             }
         }
 
-        if (best) {
-            this.textElement.textContent = best.text;
-        } else {
-            this.textElement.textContent = '';
-        }
+        this.textElement.textContent = best ? best.text : '';
     }
 
     /**

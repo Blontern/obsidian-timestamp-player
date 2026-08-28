@@ -166,6 +166,8 @@ export class CustomMediaPlayer {
                 this.seekFrame(-1);
             } else if (e.key.toLowerCase() === "f") {
                 this.seekFrame(1);
+            } else if (e.key.toLowerCase() === "c") {
+                this.subtitleManager.setEnabled(!this.subtitleManager.isEnabled())
             } else {
                 handled = false;
             }
@@ -375,6 +377,15 @@ export class CustomMediaPlayer {
                 });
             }
         }
+
+        menu.addItem((item) => {
+            const isEnabled = this.subtitleManager.isEnabled();
+            item.setTitle(isEnabled ? "关闭字幕" : "开启字幕")
+                .setIcon("subtitles")
+                .onClick(() => {
+                    this.subtitleManager.setEnabled(!isEnabled);
+                });
+        });
 
         const seekItems = [
             { t: "快退 5 秒", i: "rewind", a: () => this.seek(-5) },

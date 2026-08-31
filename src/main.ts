@@ -18,7 +18,7 @@ export default class TimestampPlayerPlugin extends Plugin {
                 if (!(await this.hasMediaEmbed(ctx))) return;
                 this.processTimestamps(el);
                 this.rewriteMediaElements(el);
-                this.stickyManager.setupForElement(el, ctx.sourcePath);
+                this.stickyManager.setupForElement(el);
             }
         );
 
@@ -40,67 +40,41 @@ export default class TimestampPlayerPlugin extends Plugin {
     }
 
     private processTimestamps(el: HTMLElement) {
-        const paragraphs = el.querySelectorAll("p");
-        
-        for (const p of Array.from(paragraphs)) {
-            const nodesToProcess: { node: Text; type: "speaker" | "inline"; match: RegExpMatchArray }[] = [];
-
-            for (const node of Array.from(p.childNodes)) {
-                if (node.nodeType !== Node.TEXT_NODE) continue;
-                const text = node.textContent?.trim() ?? "";
-                if (!text) continue;
-
+        for (const p of Array.from(el.querySelectorAll("p"))) {
+            const texts = Array.from(p.childNodes)
+                .filter(n => n.nodeType === Node.TEXT_NODE && (n.textContent?.trim() ?? "")) as Text[];
+            for (const node of texts.reverse()) {
+                const text = node.textContent!.trim();
                 const speakerMatch = text.match(SPEAKER_LINE_RE);
                 if (speakerMatch) {
-                    nodesToProcess.push({ node: node as Text, type: "speaker", match: speakerMatch });
+                    this.replaceSpeakerLine(node, speakerMatch);
                 } else if (INLINE_TS_RE.test(text)) {
                     INLINE_TS_RE.lastIndex = 0;
-                    nodesToProcess.push({ node: node as Text, type: "inline", match: [] as unknown as RegExpMatchArray });
-                }
-            }
-
-            for (const item of nodesToProcess.reverse()) {
-                if (item.type === "speaker") {
-                    this.replaceSpeakerLine(item.node, item.match);
-                } else {
-                    this.replaceInlineTimestamps(item.node);
+                    this.replaceInlineTimestamps(node);
                 }
             }
         }
     }
 
     private parseTimeString(timeStr: string): number {
-        let hours = 0, minutes = 0, seconds = 0, millis = 0;
         const trimmed = timeStr.trim();
         if (!trimmed) return 0;
-
-        let mainPart = trimmed;
-        let millisPart = "";
         const dotIndex = trimmed.indexOf(".");
-        if (dotIndex !== -1) {
-            mainPart = trimmed.substring(0, dotIndex);
-            millisPart = trimmed.substring(dotIndex + 1);
-            if (millisPart) {
-                const millisNum = parseFloat("0." + millisPart);
-                if (!isNaN(millisNum)) {
-                    millis = Math.round(millisNum * 1000);
-                }
-            }
+        const mainPart = dotIndex === -1 ? trimmed : trimmed.substring(0, dotIndex);
+        let millis = 0;
+        const millisPart = dotIndex === -1 ? "" : trimmed.substring(dotIndex + 1);
+        if (millisPart) {
+            const n = parseFloat("0." + millisPart);
+            if (!isNaN(n)) millis = Math.round(n * 1000);
         }
-
         const parts = mainPart.split(":").map(s => parseInt(s, 10));
         if (parts.length === 2) {
-            minutes = parts[0] || 0;
-            seconds = parts[1] || 0;
-        } else if (parts.length === 3) {
-            hours = parts[0] || 0;
-            minutes = parts[1] || 0;
-            seconds = parts[2] || 0;
-        } else {
-            return 0;
+            return (parts[0] || 0) * 60 + (parts[1] || 0) + millis / 1000;
         }
-
-        return hours * 3600 + minutes * 60 + seconds + millis / 1000;
+        if (parts.length === 3) {
+            return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0) + millis / 1000;
+        }
+        return 0;
     }
 
     private replaceSpeakerLine(node: Text, match: RegExpMatchArray) {
@@ -145,7 +119,6 @@ export default class TimestampPlayerPlugin extends Plugin {
     private boundTimeUpdate: (() => void) | null = null;
     private boundEnded: (() => void) | null = null;
     private boundPause: (() => void) | null = null;
-
     private createTimestampBtn(timeStr: string, totalSeconds: number): HTMLSpanElement {
         const btn = createSpan({ cls: "tsp-timestamp" });
         btn.setAttribute("data-seconds", String(totalSeconds));
@@ -168,10 +141,10 @@ export default class TimestampPlayerPlugin extends Plugin {
 
     private togglePlay(btn: HTMLElement, seconds: number) {
         if (this.activeBtn === btn && this.activeMedia) {
-            if (!this.activeMedia.paused) {
-                this.activeMedia.pause();
-            } else {
+            if (this.activeMedia.paused) {
                 this.activeMedia.play().catch(() => {});
+            } else {
+                this.activeMedia.pause();
             }
             return;
         }
@@ -183,20 +156,12 @@ export default class TimestampPlayerPlugin extends Plugin {
         const media = this.findMediaForBtn(container, btn);
         if (!media) return;
 
-        this.releaseCurrentMedia();
-
-        if (this.activeMedia && this.activeMedia !== media && !this.activeMedia.paused) {
-            this.activeMedia.pause();
-        }
+        this.activateMedia(media, container);
 
         media.currentTime = Math.min(seconds, media.duration || Infinity);
         media.play().catch(() => {});
 
-        this.activeMedia = media;
-        this.activeContainer = container;
         this.setActiveBtn(btn);
-
-        this.bindMediaListeners(media);
     }
 
     private findMediaForBtn(container: HTMLElement, btn: HTMLElement): HTMLMediaElement | null {
@@ -278,20 +243,21 @@ export default class TimestampPlayerPlugin extends Plugin {
         }
     }
 
+    private setPlayIcon(icon: "play" | "pause") {
+        if (!this.activeBtn) return;
+        const el = this.activeBtn.querySelector(".tsp-play-icon");
+        if (el) setIcon(el as HTMLElement, icon);
+    }
+
     private setActiveBtn(btn?: HTMLElement | null) {
         if (this.activeBtn) {
-            const prevIcon = this.activeBtn.querySelector(".tsp-play-icon");
-            if (prevIcon) setIcon(prevIcon as HTMLElement, "play");
+            this.setPlayIcon("play");
             this.activeBtn.removeClass("tsp-active");
         }
         this.activeBtn = btn ?? null;
         if (btn) {
             btn.addClass("tsp-active");
-            const icon = btn.querySelector(".tsp-play-icon");
-            if (icon) {
-                const isPlaying = this.activeMedia && !this.activeMedia.paused;
-                setIcon(icon as HTMLElement, isPlaying ? "pause" : "play");
-            }
+            this.setPlayIcon(this.activeMedia && !this.activeMedia.paused ? "pause" : "play");
         }
     }
 
@@ -314,34 +280,17 @@ export default class TimestampPlayerPlugin extends Plugin {
     private bindMediaListeners(media: HTMLMediaElement) {
         this.boundTimeUpdate = () => this.onTimeUpdate();
         this.boundEnded = () => this.clearPlaybackState();
-        this.boundPause = () => {
-            if (this.activeBtn) {
-                const icon = this.activeBtn.querySelector(".tsp-play-icon");
-                if (icon) setIcon(icon as HTMLElement, "play");
-            }
-        };
+        this.boundPause = () => this.setPlayIcon("play");
         media.addEventListener("timeupdate", this.boundTimeUpdate);
         media.addEventListener("ended", this.boundEnded);
         media.addEventListener("pause", this.boundPause);
-        media.addEventListener("play", () => {
-            if (this.activeBtn) {
-                const icon = this.activeBtn.querySelector(".tsp-play-icon");
-                if (icon) setIcon(icon as HTMLElement, "pause");
-            }
-        });
+        media.addEventListener("play", () => this.setPlayIcon("pause"));
     }
 
     private clearPlaybackState() {
         this.releaseCurrentMedia();
         this.activeMedia = null;
         this.activeContainer = null;
-    }
-
-    private updateActiveIcon(paused: boolean) {
-        if (this.activeBtn) {
-            const icon = this.activeBtn.querySelector(".tsp-play-icon");
-            if (icon) setIcon(icon as HTMLElement, paused ? "play" : "pause");
-        }
     }
 
     private rewriteMediaElements(el: HTMLElement) {
@@ -357,16 +306,16 @@ export default class TimestampPlayerPlugin extends Plugin {
             if (container) {
                 container.addEventListener('media-play', () => {
                     if (this.activeMedia !== media) this.switchToMedia(media);
-                    else this.updateActiveIcon(false);
+                    else this.setPlayIcon("pause");
                 });
                 container.addEventListener('media-pause', () => {
-                    if (this.activeMedia === media) this.updateActiveIcon(true);
+                    if (this.activeMedia === media) this.setPlayIcon("play");
                 });
             }
         }
     }
 
-    private switchToMedia(media: HTMLMediaElement) {
+    private activateMedia(media: HTMLMediaElement, container: HTMLElement | null) {
         this.releaseCurrentMedia();
 
         if (this.activeMedia && this.activeMedia !== media && !this.activeMedia.paused) {
@@ -374,14 +323,17 @@ export default class TimestampPlayerPlugin extends Plugin {
         }
 
         this.activeMedia = media;
+        this.activeContainer = container;
+        this.bindMediaListeners(media);
+    }
+
+    private switchToMedia(media: HTMLMediaElement) {
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        this.activeContainer = view?.containerEl || null;
+        this.activateMedia(media, view?.containerEl || null);
 
         if (this.activeContainer) {
             const target = this.findActiveTimestamp(this.activeContainer, media);
             if (target) this.setActiveBtn(target);
         }
-
-        this.bindMediaListeners(media);
     }
 }

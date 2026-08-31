@@ -51,9 +51,7 @@ function copyPlaybackState(src: HTMLMediaElement | null, dst: HTMLMediaElement |
     } catch {}
 }
 
-type Controller = BaseController;
-
-interface MediaGroup { ctls: Controller[]; active: Controller | null; }
+interface MediaGroup { ctls: BaseController[]; }
 
 abstract class BaseController {
     protected attached = false;
@@ -148,15 +146,19 @@ export class StickyMediaController extends BaseController {
 
     restore() {
         if (!this.docked || !this.anchor) return;
-        if (this.anchor.isConnected) this.anchor.after(this.wrapper);
-        else if (this.origParent) {
-            try { this.origParent.insertBefore(this.wrapper, this.origNext); } catch { this.origParent.appendChild(this.wrapper); }
-        } else this.hostEl.appendChild(this.wrapper);
+        this.moveBack();
         this.placeholder?.remove();
         this.layer?.remove();
         this.hostEl.classList.remove("tsp-sticky-host-context");
         this.placeholder = this.layer = null;
         this.docked = false;
+    }
+
+    private moveBack() {
+        if (this.anchor?.isConnected) this.anchor.after(this.wrapper);
+        else if (this.origParent) {
+            try { this.origParent.insertBefore(this.wrapper, this.origNext); } catch { this.origParent.appendChild(this.wrapper); }
+        } else this.hostEl.appendChild(this.wrapper);
     }
 
     destroy() {
@@ -167,10 +169,7 @@ export class StickyMediaController extends BaseController {
         this.resizeObserver = null;
         this.mgr.unregisterMediaAnchor(this.media);
         if (this.docked) {
-            if (this.anchor?.isConnected) this.anchor.after(this.wrapper);
-            else if (this.origParent) {
-                try { this.origParent.insertBefore(this.wrapper, this.origNext); } catch { this.origParent.appendChild(this.wrapper); }
-            } else this.hostEl.appendChild(this.wrapper);
+            this.moveBack();
             this.placeholder?.remove();
             this.layer?.remove();
             this.docked = false;
@@ -300,13 +299,13 @@ export class StickyMediaManager {
     getMediaForAnchor(anchor: HTMLElement): HTMLMediaElement | null { return this.anchorMap.get(anchor) || null; }
     getAnchorForMedia(media: HTMLMediaElement): HTMLElement | null { return this.mediaMap.get(media) || null; }
 
-    setupForElement(renderRoot: HTMLElement, _path: string) {
+    setupForElement(renderRoot: HTMLElement) {
         const ctx = findStickyMediaContext(renderRoot);
         if (!ctx) return;
         const { media, scrollEl, hostEl } = ctx;
         let g = this.groups.get(scrollEl);
         if (!g) {
-            g = { ctls: [], active: null };
+            g = { ctls: [] };
             this.groups.set(scrollEl, g);
             scrollEl.addEventListener("scroll", () => this.arbitrate(scrollEl), { passive: true });
         }
@@ -326,7 +325,7 @@ export class StickyMediaManager {
             if (!(view instanceof MarkdownView) || !view.file) continue;
             const mode = view.getMode();
             for (const media of findStickyMediaCandidates(view.containerEl, mode)) {
-                this.setupForElement(media, view.file.path);
+                this.setupForElement(media);
             }
         }
     }
@@ -350,7 +349,7 @@ export class StickyMediaManager {
         const g = this.groups.get(scrollEl);
         if (!g) return;
         const sr = scrollEl.getBoundingClientRect();
-        let best: Controller | null = null, bestTop = -Infinity;
+        let best: BaseController | null = null, bestTop = -Infinity;
         for (const c of g.ctls) {
             if (!c.isActive) continue;
             const r = c.getTriggerRect();
@@ -361,7 +360,6 @@ export class StickyMediaManager {
             if (should && !c.isDocked()) c.dock();
             else if (!should && c.isDocked()) c.restore();
         }
-        g.active = best;
     }
 
     private startObs() {
@@ -395,7 +393,7 @@ export class StickyMediaManager {
                 this.groups.delete(el);
                 continue;
             }
-            const toRemove: Controller[] = [];
+            const toRemove: BaseController[] = [];
             for (const c of g.ctls) {
                 if (!c.isActive) toRemove.push(c);
                 else c.refresh();
@@ -403,7 +401,6 @@ export class StickyMediaManager {
             for (const c of toRemove) {
                 const idx = g.ctls.indexOf(c);
                 if (idx > -1) g.ctls.splice(idx, 1);
-                if (g.active === c) g.active = null;
                 c.destroy();
             }
             if (g.ctls.length === 0) {

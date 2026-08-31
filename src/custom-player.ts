@@ -8,7 +8,6 @@ export class CustomMediaPlayer {
     private currentTimeLabel: HTMLElement;
     private durationLabel: HTMLElement;
     private playBtn: HTMLElement;
-    private settingsBtn: HTMLElement;
     private tooltip: HTMLElement | null = null;
     private volumeBtn: HTMLElement;
     private volumeSlider: HTMLInputElement;
@@ -23,26 +22,19 @@ export class CustomMediaPlayer {
     private subtitleManager: SubtitleManager;
 
     constructor(private media: HTMLMediaElement, private app: App) {
-        this.container = document.createElement("div");
-        this.container.className = "custom-media-player";
-        this.container.setAttribute("tabindex", "0");
-
+        this.container = createDiv({ cls: "custom-media-player", attr: { tabindex: "0" } });
         media.parentNode?.insertBefore(this.container, media);
         this.container.appendChild(media);
         media.style.width = "100%";
     }
 
     build() {
-        this.controls = document.createElement("div");
-        this.controls.className = "media-controls";
+        this.controls = createDiv({ cls: "media-controls" });
 
-        // ----- 播放按钮 -----
         this.playBtn = this.createButton("play", () => this.togglePlay());
         this.controls.appendChild(this.playBtn);
 
-        // ----- 音量控制 -----
-        const volContainer = document.createElement("div");
-        volContainer.className = "media-volume-container";
+        const volContainer = createDiv({ cls: "media-volume-container" });
         this.volumeBtn = this.createButton("volume-2", (e) => {
             e.stopPropagation();
             this.media.muted = !this.media.muted;
@@ -50,56 +42,41 @@ export class CustomMediaPlayer {
         });
         volContainer.appendChild(this.volumeBtn);
 
-        this.volumeSlider = document.createElement("input");
-        this.volumeSlider.type = "range";
-        this.volumeSlider.min = "0";
-        this.volumeSlider.max = "1";
-        this.volumeSlider.step = "0.01";
-        this.volumeSlider.className = "media-volume-slider";
-        this.volumeSlider.value = String(this.media.volume);
+        this.volumeSlider = createEl("input", {
+            type: "range",
+            cls: "media-volume-slider",
+            attr: { min: "0", max: "1", step: "0.01" },
+            value: String(this.media.volume),
+        });
         this.volumeSlider.addEventListener("input", () => {
-            const val = parseFloat(this.volumeSlider.value);
-            this.media.volume = val;
+            this.media.volume = parseFloat(this.volumeSlider.value);
             this.media.muted = false;
             this.updateVolumeIcon();
         });
         volContainer.appendChild(this.volumeSlider);
         this.controls.appendChild(volContainer);
 
-        // ----- 进度条 -----
-        this.progressBar = document.createElement("input");
-        this.progressBar.type = "range";
-        this.progressBar.min = "0";
-        this.progressBar.max = "100";
-        this.progressBar.value = "0";
-        this.progressBar.className = "media-progress";
+        this.progressBar = createEl("input", {
+            type: "range",
+            cls: "media-progress",
+            attr: { min: "0", max: "100", value: "0" },
+        });
         this.controls.appendChild(this.progressBar);
 
-        // ----- 时间标签 -----
-        this.currentTimeLabel = document.createElement("span");
-        this.currentTimeLabel.className = "media-time";
-        this.currentTimeLabel.textContent = "00:00";
+        this.currentTimeLabel = createSpan({ cls: "media-time", text: "00:00" });
         this.controls.appendChild(this.currentTimeLabel);
 
-        this.durationLabel = document.createElement("span");
-        this.durationLabel.className = "media-time";
-        this.durationLabel.textContent = " / 00:00";
+        this.durationLabel = createSpan({ cls: "media-time", text: " / 00:00" });
         this.controls.appendChild(this.durationLabel);
 
-        // ----- 设置按钮 -----
-        this.settingsBtn = this.createButton("settings", (e) => this.showSettings(e));
-        this.controls.appendChild(this.settingsBtn);
+        this.controls.appendChild(this.createButton("settings", (e) => this.showSettings(e)));
 
-        // ----- 将控制栏加入容器 -----
         this.container.appendChild(this.controls);
 
-        // ---------- 创建字幕管理器 ----------
         this.subtitleManager = new SubtitleManager(this.media, this.container, this.app);
 
-        // 初始显示控制栏
         this.showControls();
 
-        // ----- 鼠标悬停与自动隐藏 -----
         this.container.addEventListener("mouseenter", () => {
             this.isMouseOver = true;
             this.showControls();
@@ -110,67 +87,50 @@ export class CustomMediaPlayer {
         });
         this.container.addEventListener("mousemove", () => this.resetHideTimer());
 
-        // ----- 媒体事件监听 -----
         this.media.addEventListener("play", () => {
-            setIcon(this.playBtn, "pause");
+            this.setPlayIcon("pause");
             this.dispatchMediaEvent('media-play');
-            if (!this.isMouseOver) {
-                this.hideControls();
-            }
+            if (!this.isMouseOver) this.hideControls();
         });
         this.media.addEventListener("pause", () => {
-            setIcon(this.playBtn, "play");
+            this.setPlayIcon("play");
             this.dispatchMediaEvent('media-pause');
             this.showControls();
             this.clearHideTimer();
         });
         this.media.addEventListener("ended", () => {
-            setIcon(this.playBtn, "play");
+            this.setPlayIcon("play");
             this.dispatchMediaEvent('media-pause');
         });
 
-        // ----- 点击媒体切换播放 -----
         this.media.addEventListener("click", () => this.togglePlay());
 
-        // ----- 进度条事件 -----
         this.progressBar.addEventListener("input", () => {
-            const pct = parseFloat(this.progressBar.value) / 100;
-            this.media.currentTime = pct * this.media.duration;
+            this.media.currentTime = (parseFloat(this.progressBar.value) / 100) * this.media.duration;
         });
         this.progressBar.addEventListener("click", (e) => {
             const rect = this.progressBar.getBoundingClientRect();
-            const pct = (e.clientX - rect.left) / rect.width;
-            this.media.currentTime = Math.max(0, pct * this.media.duration);
+            this.media.currentTime = Math.max(0, ((e.clientX - rect.left) / rect.width) * this.media.duration);
         });
         this.progressBar.addEventListener("mousemove", (e) => this.showTooltip(e));
         this.progressBar.addEventListener("mouseleave", () => this.hideTooltip());
 
-        // ----- 媒体事件 -----
         this.media.addEventListener("timeupdate", () => this.updateProgress());
         this.media.addEventListener("loadedmetadata", () => this.updateDuration());
         this.media.addEventListener("seeked", () => this.updateProgress());
 
-        // ----- 键盘快捷键 -----
         this.container.addEventListener("keydown", (e) => {
             if (this.media.readyState < 1) return;
+            const key = e.key.toLowerCase();
             let handled = true;
-            if (e.shiftKey && e.key === "ArrowLeft") {
-                this.seekKeyframe(-1);
-            } else if (e.shiftKey && e.key === "ArrowRight") {
-                this.seekKeyframe(1);
-            } else if (e.key === "ArrowLeft") {
-                this.seek(-5);
-            } else if (e.key === "ArrowRight") {
-                this.seek(5);
-            } else if (e.key.toLowerCase() === "d") {
-                this.seekFrame(-1);
-            } else if (e.key.toLowerCase() === "f") {
-                this.seekFrame(1);
-            } else if (e.key.toLowerCase() === "c") {
-                this.subtitleManager.setEnabled(!this.subtitleManager.isEnabled())
-            } else {
-                handled = false;
-            }
+            if (e.shiftKey && e.key === "ArrowLeft") this.seekKeyframe(-1);
+            else if (e.shiftKey && e.key === "ArrowRight") this.seekKeyframe(1);
+            else if (e.key === "ArrowLeft") this.seek(-5);
+            else if (e.key === "ArrowRight") this.seek(5);
+            else if (key === "d") this.seekFrame(-1);
+            else if (key === "f") this.seekFrame(1);
+            else if (key === "c") this.subtitleManager.setEnabled(!this.subtitleManager.isEnabled());
+            else handled = false;
             if (handled) e.preventDefault();
         });
 
@@ -178,9 +138,12 @@ export class CustomMediaPlayer {
         this.updateVolumeIcon();
     }
 
-    // ----- 控制栏显隐 -----
+    private setPlayIcon(icon: "play" | "pause") {
+        setIcon(this.playBtn, icon);
+    }
+
     private showControls() {
-        this.controls.classList.add("is-visible");
+        this.controls.addClass("is-visible");
         this.clearHideTimer();
     }
 
@@ -191,12 +154,11 @@ export class CustomMediaPlayer {
         }
         this.clearHideTimer();
         this.hideTimeout = window.setTimeout(() => {
-            this.controls.classList.remove("is-visible");
+            this.controls.removeClass("is-visible");
             this.hideTimeout = null;
         }, 1000);
     }
 
-    // ----- 快退快进 -----
     private seek(offset: number) {
         if (!this.media.duration) return;
         this.media.currentTime = Math.max(0, Math.min(this.media.duration, this.media.currentTime + offset));
@@ -251,7 +213,6 @@ export class CustomMediaPlayer {
         }
     }
 
-    // ----- 播放控制 -----
     private togglePlay() {
         if (this.media.paused) {
             this.media.play().catch(() => {});
@@ -260,19 +221,16 @@ export class CustomMediaPlayer {
         }
     }
 
-    // ----- 同步时间戳播放状态 -----
     private dispatchMediaEvent(type: string) {
-        const event = new CustomEvent(type, {
+        this.container.dispatchEvent(new CustomEvent(type, {
             bubbles: true,
-            detail: { media: this.media }
-        });
-        this.container.dispatchEvent(event);
+            detail: { media: this.media },
+        }));
     }
 
     private updateProgress() {
         if (!this.media.duration) return;
-        const pct = (this.media.currentTime / this.media.duration) * 100;
-        this.progressBar.value = String(pct);
+        this.progressBar.value = String((this.media.currentTime / this.media.duration) * 100);
         this.currentTimeLabel.textContent = this.formatTime(this.media.currentTime);
     }
 
@@ -296,11 +254,7 @@ export class CustomMediaPlayer {
     private updateVolumeIcon() {
         const vol = this.media.volume;
         const muted = this.media.muted;
-        let icon = "volume-2";
-        if (muted || vol === 0) icon = "volume-off";
-        else if (vol < 0.33) icon = "volume-1";
-        else icon = "volume-2";
-        setIcon(this.volumeBtn, icon);
+        setIcon(this.volumeBtn, muted || vol === 0 ? "volume-off" : vol < 0.33 ? "volume-1" : "volume-2");
         this.volumeSlider.value = muted ? "0" : String(vol);
     }
 
@@ -308,13 +262,11 @@ export class CustomMediaPlayer {
         if (!this.media.duration) return;
         const rect = this.progressBar.getBoundingClientRect();
         const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-        const seconds = pct * this.media.duration;
         if (!this.tooltip) {
-            this.tooltip = document.createElement("div");
-            this.tooltip.className = "media-tooltip";
+            this.tooltip = createDiv({ cls: "media-tooltip" });
             document.body.appendChild(this.tooltip);
         }
-        this.tooltip.textContent = this.formatTime(seconds);
+        this.tooltip.textContent = this.formatTime(pct * this.media.duration);
         this.tooltip.style.left = (e.clientX - this.tooltip.offsetWidth / 2) + "px";
         this.tooltip.style.top = (rect.top - 30) + "px";
         this.tooltip.style.display = "block";
@@ -413,8 +365,7 @@ export class CustomMediaPlayer {
     }
 
     private createButton(iconName: string, onClick: (e: MouseEvent) => void): HTMLElement {
-        const btn = document.createElement("button");
-        btn.className = "media-btn";
+        const btn = createEl("button", { cls: "media-btn" });
         setIcon(btn, iconName);
         btn.addEventListener("click", onClick);
         return btn;

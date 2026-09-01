@@ -23,7 +23,7 @@
 
 在阅读视图下，每个时间戳变成可点击的 `▶ 00:27` 按钮。点击从该位置播放，再次点击暂停。
 
-![预览](https://raw.githubusercontent.com/blontern/obsidian-timestamp-player/master/assets/preview-cn.png)
+![预览](https://raw.githubusercontent.com/blontern/obsidian-timestamp-player/dev/assets/preview-cn.png)
 
 ## 功能
 

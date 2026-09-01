@@ -23,7 +23,7 @@ Right, and we should probably start with the MVP first.
 
 In reading view, each timestamp becomes a clickable `▶ 00:27` button. Click to play from that position; click again to pause.
 
-![Preview](https://raw.githubusercontent.com/blontern/obsidian-timestamp-player/master/assets/preview-cn.png)
+![Preview](https://raw.githubusercontent.com/blontern/obsidian-timestamp-player/dev/assets/preview-cn.png)
 
 ## Features
 

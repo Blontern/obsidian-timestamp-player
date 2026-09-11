@@ -35,7 +35,7 @@ export class TimestampManager {
         }
     }
 
-    private parseTimeString(timeStr: string): number {
+    public parseTimeString(timeStr: string): number {
         const trimmed = timeStr.trim();
         if (!trimmed) return 0;
         const dotIndex = trimmed.indexOf(".");
@@ -112,7 +112,7 @@ export class TimestampManager {
         return btn;
     }
 
-    private togglePlay(btn: HTMLElement, seconds: number) {
+    public togglePlay(btn: HTMLElement, seconds: number) {
         if (this.activeBtn === btn && this.activeMedia) {
             if (this.activeMedia.paused) {
                 this.activeMedia.play().catch(() => {});

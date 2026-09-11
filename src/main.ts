@@ -1,6 +1,7 @@
 import { Plugin, MarkdownPostProcessorContext, TFile } from "obsidian";
 import { StickyMediaManager } from "./sticky-media";
 import { TimestampManager } from "./timestamps";
+import { createLivePreviewTimestampExtension } from "./timestamps-live-preview";
 
 const MEDIA_EMBED_RE = /!\[\[.+?\.(mp3|webm|wav|m4a|ogg|3gp|flac|mp4|mov|avi|mkv|mpeg)\]\]/i;
 
@@ -20,6 +21,10 @@ export default class TimestampPlayerPlugin extends Plugin {
                 this.timestampManager.rewriteMediaElements(el);
                 this.stickyManager.setupForElement(el);
             }
+        );
+
+        this.registerEditorExtension(
+            createLivePreviewTimestampExtension(this.app, this.timestampManager)
         );
 
         this.registerEvent(

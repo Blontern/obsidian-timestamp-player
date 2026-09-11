@@ -19,20 +19,53 @@ export class TimestampManager {
     ) {}
 
     processTimestamps(el: HTMLElement) {
-        for (const p of Array.from(el.querySelectorAll("p"))) {
-            const texts = Array.from(p.childNodes)
-                .filter(n => n.nodeType === Node.TEXT_NODE && (n.textContent?.trim() ?? "")) as Text[];
+        for (const p of Array.from(el.querySelectorAll<HTMLElement>("p"))) {
+            // 幂等：已经处理过就跳过
+            if (p.querySelector(".tsp-timestamp")) continue;
+
+            const texts = this.collectTextNodes(p);
+
             for (const node of texts.reverse()) {
-                const text = node.textContent!.trim();
+                const text = node.textContent?.trim() ?? "";
+                if (!text) continue;
+
                 const speakerMatch = text.match(SPEAKER_LINE_RE);
                 if (speakerMatch) {
                     this.replaceSpeakerLine(node, speakerMatch);
-                } else if (INLINE_TS_RE.test(text)) {
+                } else {
                     INLINE_TS_RE.lastIndex = 0;
-                    this.replaceInlineTimestamps(node);
+                    if (INLINE_TS_RE.test(text)) {
+                        this.replaceInlineTimestamps(node);
+                    }
                 }
             }
         }
+    }
+
+    /** 递归收集元素下的文本节点，跳过语义元素和自身产物 */
+    private collectTextNodes(el: HTMLElement): Text[] {
+        const result: Text[] = [];
+        const SKIP_TAGS = new Set(["CODE", "PRE", "A", "SCRIPT", "STYLE"]);
+
+        const walk = (node: Node) => {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                const e = node as HTMLElement;
+                if (SKIP_TAGS.has(e.tagName)) return;
+                if (
+                    e.classList.contains("tsp-timestamp") ||
+                    e.classList.contains("tsp-speaker") ||
+                    e.classList.contains("tsp-play-icon") ||
+                    e.classList.contains("tsp-time")
+                ) return;
+            }
+            if (node.nodeType === Node.TEXT_NODE) {
+                if (node.textContent?.trim()) result.push(node as Text);
+            } else {
+                for (const child of Array.from(node.childNodes)) walk(child);
+            }
+        };
+        walk(el);
+        return result;
     }
 
     public parseTimeString(timeStr: string): number {
@@ -64,7 +97,17 @@ export class TimestampManager {
         const wrapper = createFragment();
         wrapper.appendChild(createSpan({ cls: "tsp-speaker", text: speaker + " " }));
         wrapper.appendChild(this.createTimestampBtn(timeStr, totalSeconds));
-        node.parentNode?.replaceChild(wrapper, node);
+
+        const parent = node.parentNode;
+        if (!parent) return;
+
+        // CodeMirror 的安全处理：父节点是 CM 装饰 span 且只有一个子节点时，
+        // 就地替换内容，避免整块 span 被替换引发 CM 重新布局异常。
+        if (this.isCmSpan(parent) && parent.childNodes.length === 1) {
+            parent.replaceChildren(wrapper);
+        } else {
+            parent.replaceChild(wrapper, node);
+        }
     }
 
     private replaceInlineTimestamps(node: Text) {
@@ -89,7 +132,19 @@ export class TimestampManager {
             fragment.appendChild(activeDocument.createTextNode(text.slice(lastIndex)));
         }
 
-        node.parentNode?.replaceChild(fragment, node);
+        const parent = node.parentNode;
+        if (!parent) return;
+
+        if (this.isCmSpan(parent) && parent.childNodes.length === 1) {
+            parent.replaceChildren(fragment);
+        } else {
+            parent.replaceChild(fragment, node);
+        }
+    }
+
+    /** 判断节点是否为 CodeMirror 的装饰性 span（类名包含 cm- 前缀） */
+    private isCmSpan(node: Node): node is HTMLElement {
+        return node instanceof HTMLElement && /(^|\s)cm-/.test(node.className);
     }
 
     private createTimestampBtn(timeStr: string, totalSeconds: number): HTMLSpanElement {
@@ -266,25 +321,34 @@ export class TimestampManager {
         this.activeContainer = null;
     }
 
+    /** 遍历容器内的所有媒体元素并包装（阅读模式后处理器入口） */
     rewriteMediaElements(el: HTMLElement) {
         const mediaElements = el.querySelectorAll<HTMLMediaElement>("audio, video");
         for (const media of Array.from(mediaElements)) {
-            if (media.hasAttribute("data-custom-player")) continue;
-            media.setAttribute("data-custom-player", "true");
-            media.removeAttribute("controls");
-            const player = new CustomMediaPlayer(media, this.app);
-            player.build();
+            this.wrapMediaElement(media);
+        }
+    }
 
-            const container = media.closest('.custom-media-player');
-            if (container) {
-                container.addEventListener('media-play', () => {
-                    if (this.activeMedia !== media) this.switchToMedia(media);
-                    else this.setPlayIcon("pause");
-                });
-                container.addEventListener('media-pause', () => {
-                    if (this.activeMedia === media) this.setPlayIcon("play");
-                });
-            }
+    /** 包装单个媒体元素为 custom player（幂等，MutationObserver 入口） */
+    wrapMediaElement(media: HTMLMediaElement) {
+        if (media.hasAttribute("data-custom-player")) return;
+        if (media.closest(".custom-media-player")) return;
+
+        media.setAttribute("data-custom-player", "true");
+        media.removeAttribute("controls");
+
+        const player = new CustomMediaPlayer(media, this.app);
+        player.build();
+
+        const container = media.closest(".custom-media-player");
+        if (container) {
+            container.addEventListener("media-play", () => {
+                if (this.activeMedia !== media) this.switchToMedia(media);
+                else this.setPlayIcon("pause");
+            });
+            container.addEventListener("media-pause", () => {
+                if (this.activeMedia === media) this.setPlayIcon("play");
+            });
         }
     }
 

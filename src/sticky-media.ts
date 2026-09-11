@@ -40,17 +40,6 @@ function resolveWrapper(media: HTMLMediaElement, scrollEl: HTMLElement): HTMLEle
     return cand && scrollEl.contains(cand) ? cand : media;
 }
 
-function copyPlaybackState(src: HTMLMediaElement | null, dst: HTMLMediaElement | null): void {
-    if (!src || !dst) return;
-    try {
-        dst.currentTime = src.currentTime;
-        dst.volume = src.volume;
-        dst.muted = src.muted;
-        dst.playbackRate = src.playbackRate;
-        dst.loop = src.loop;
-    } catch {}
-}
-
 interface MediaGroup { ctls: BaseController[]; }
 
 abstract class BaseController {
@@ -92,11 +81,8 @@ export class StickyMediaController extends BaseController {
 
     attach() {
         if (this.attached || this.destroyed || !this.wrapper.isConnected) return;
-        this.anchor = this.media.ownerDocument.createElement("div");
-        this.anchor.className = "tsp-sticky-anchor";
-        this.anchor.setAttribute("aria-hidden", "true");
-        this.wrapper.before(this.anchor);
-        this.mgr.registerMediaAnchor(this.media, this.anchor);
+        this.installAnchor();
+
         const win = this.media.ownerDocument.defaultView;
         win?.addEventListener("resize", this.onResize);
         const RC = win?.ResizeObserver;
@@ -109,25 +95,53 @@ export class StickyMediaController extends BaseController {
         this.refresh();
     }
 
+    private installAnchor() {
+        this.anchor = this.media.ownerDocument.createElement("div");
+        this.anchor.className = "tsp-sticky-anchor";
+        this.anchor.setAttribute("aria-hidden", "true");
+        this.wrapper.before(this.anchor);
+        this.mgr.registerMediaAnchor(this.media, this.anchor);
+    }
+
     getTriggerRect(): DOMRect {
-        return (this.anchor?.isConnected) ? this.anchor.getBoundingClientRect() : this.wrapper.getBoundingClientRect();
+        if (this.anchor?.isConnected) return this.anchor.getBoundingClientRect();
+        return this.wrapper.getBoundingClientRect();
     }
 
     refresh() {
-        if (!this.attached || this.destroyed || !this.anchor) return;
-        if (!this.scrollEl.isConnected || !this.hostEl.isConnected || !this.anchor.isConnected) {
+        if (!this.attached || this.destroyed) return;
+        if (!this.scrollEl.isConnected || !this.hostEl.isConnected) {
             this.destroy();
             return;
         }
+
+        // CodeMirror 虚拟化容错
+        if (this.anchor && !this.anchor.isConnected) {
+            if (this.docked) {
+                // 已 dock：媒体本身在 sticky 层里，位置由 origLeft 兜底；
+                // restore() 会通过 origParent 兜底把媒体放回去。
+            } else if (this.wrapper.isConnected) {
+                // 未 dock：CM 重建了承载行，重新安装 anchor 继续追踪
+                this.mgr.unregisterMediaAnchor(this.media);
+                this.installAnchor();
+            } else {
+                this.destroy();
+                return;
+            }
+        }
+
         if (this.docked) this.syncGeo();
     }
 
     dock() {
-        if (this.docked || !this.anchor) return;
+        if (this.docked || !this.anchor?.isConnected) return;
         this.origParent = this.wrapper.parentNode;
         this.origNext = this.wrapper.nextSibling;
-        const wr = this.wrapper.getBoundingClientRect(), hr = this.hostEl.getBoundingClientRect();
-        this.origW = wr.width; this.origH = wr.height; this.origLeft = wr.left - hr.left;
+        const wr = this.wrapper.getBoundingClientRect();
+        const hr = this.hostEl.getBoundingClientRect();
+        this.origW = wr.width;
+        this.origH = wr.height;
+        this.origLeft = wr.left - hr.left;
 
         this.placeholder = this.media.ownerDocument.createElement("div");
         this.placeholder.className = "tsp-sticky-placeholder";
@@ -145,7 +159,7 @@ export class StickyMediaController extends BaseController {
     }
 
     restore() {
-        if (!this.docked || !this.anchor) return;
+        if (!this.docked) return;
         this.moveBack();
         this.placeholder?.remove();
         this.layer?.remove();
@@ -155,10 +169,14 @@ export class StickyMediaController extends BaseController {
     }
 
     private moveBack() {
-        if (this.anchor?.isConnected) this.anchor.after(this.wrapper);
-        else if (this.origParent) {
-            try { this.origParent.insertBefore(this.wrapper, this.origNext); } catch { this.origParent.appendChild(this.wrapper); }
-        } else this.hostEl.appendChild(this.wrapper);
+        if (this.anchor?.isConnected) {
+            this.anchor.after(this.wrapper);
+        } else if (this.origParent) {
+            try { this.origParent.insertBefore(this.wrapper, this.origNext); }
+            catch { this.hostEl.appendChild(this.wrapper); }
+        } else {
+            this.hostEl.appendChild(this.wrapper);
+        }
     }
 
     destroy() {
@@ -178,103 +196,23 @@ export class StickyMediaController extends BaseController {
         this.hostEl.classList.remove("tsp-sticky-host-context");
         this.placeholder = this.layer = this.anchor = null;
         this.origParent = this.origNext = null;
-        this.attached = false; this.destroyed = true;
+        this.attached = false;
+        this.destroyed = true;
     }
 
     private syncGeo() {
-        if (!this.docked || !this.anchor || !this.placeholder || !this.layer) return;
-        const hr = this.hostEl.getBoundingClientRect(), sr = this.scrollEl.getBoundingClientRect();
-        const ar = this.anchor.getBoundingClientRect();
-        const left = Number.isFinite(ar.left - hr.left) ? ar.left - hr.left : this.origLeft;
+        if (!this.docked || !this.placeholder || !this.layer) return;
+        const hr = this.hostEl.getBoundingClientRect();
+        const sr = this.scrollEl.getBoundingClientRect();
+        let left = this.origLeft;
+        if (this.anchor?.isConnected) {
+            const ar = this.anchor.getBoundingClientRect();
+            if (Number.isFinite(ar.left - hr.left)) left = ar.left - hr.left;
+        }
         const w = Math.min(this.origW, Math.max(0, hr.width - Math.max(0, left)));
         this.placeholder.style.cssText = `height:${this.origH}px;width:${w}px`;
         this.layer.style.cssText = `top:${sr.top - hr.top}px;left:${left}px;width:${w}px`;
     }
-}
-
-export class LivePreviewStickyMediaController extends BaseController {
-    private layer: HTMLElement | null = null;
-    private clone: HTMLMediaElement | null = null;
-    private origW = 0;
-    private origLeft = 0;
-    private readonly onResize = () => { if (!this.docked) this.measure(); this.refresh(); };
-
-    constructor(media: HTMLMediaElement, scrollEl: HTMLElement, hostEl: HTMLElement) {
-        super(media, scrollEl, hostEl);
-    }
-
-    attach() {
-        if (this.attached || this.destroyed) return;
-        this.measure();
-        this.media.ownerDocument.defaultView?.addEventListener("resize", this.onResize);
-        this.attached = true;
-        this.refresh();
-    }
-
-    getTriggerRect(): DOMRect { return this.wrapper.getBoundingClientRect(); }
-
-    refresh() {
-        if (!this.attached || this.destroyed) return;
-        if (!this.scrollEl.isConnected || !this.hostEl.isConnected) { this.destroy(); return; }
-        if (this.docked) this.syncGeo();
-    }
-
-    dock() {
-        if (this.docked || !this.media.isConnected) return;
-        const cw = this.wrapper.cloneNode(true) as HTMLElement;
-        const cm = cw.matches("audio, video") ? cw as HTMLMediaElement : cw.querySelector<HTMLMediaElement>("audio, video");
-        if (!cm) return;
-        this.layer = this.media.ownerDocument.createElement("div");
-        this.layer.className = "tsp-sticky-media-layer";
-        this.hostEl.classList.add("tsp-sticky-host-context");
-        this.hostEl.appendChild(this.layer);
-        this.layer.appendChild(cw);
-        this.clone = cm;
-        copyPlaybackState(this.media, cm);
-        if (!this.media.paused) {
-            this.media.pause();
-            cm.play().catch(() => {});
-        }
-        this.docked = true;
-        this.syncGeo();
-    }
-
-    restore() {
-        if (!this.docked) return;
-        copyPlaybackState(this.clone, this.media);
-        const resume = this.clone?.paused === false;
-        this.layer?.remove();
-        this.hostEl.classList.remove("tsp-sticky-host-context");
-        this.layer = this.clone = null;
-        this.docked = false;
-        if (resume) this.media.play().catch(() => {});
-    }
-
-    destroy() {
-        if (this.destroyed) return;
-        this.media.ownerDocument.defaultView?.removeEventListener("resize", this.onResize);
-        if (this.docked && this.media.isConnected) copyPlaybackState(this.clone, this.media);
-        this.layer?.remove();
-        this.hostEl.classList.remove("tsp-sticky-host-context");
-        this.layer = this.clone = null;
-        this.docked = false;
-        this.attached = false; this.destroyed = true;
-    }
-
-    private measure() {
-        if (!this.wrapper.isConnected) return;
-        const wr = this.wrapper.getBoundingClientRect(), hr = this.hostEl.getBoundingClientRect();
-        this.origW = wr.width; this.origLeft = wr.left - hr.left;
-    }
-
-    private syncGeo() {
-        if (!this.docked || !this.layer) return;
-        const hr = this.hostEl.getBoundingClientRect(), sr = this.scrollEl.getBoundingClientRect();
-        const avail = Math.max(0, hr.width - Math.max(0, this.origLeft));
-        this.layer.style.cssText = `top:${sr.top - hr.top}px;left:${this.origLeft}px;width:${Math.min(this.origW, avail)}px`;
-    }
-
-    getMedia(): HTMLMediaElement { return this.media; }
 }
 
 export class StickyMediaManager {
@@ -303,17 +241,16 @@ export class StickyMediaManager {
         const ctx = findStickyMediaContext(renderRoot);
         if (!ctx) return;
         const { media, scrollEl, hostEl } = ctx;
+
         let g = this.groups.get(scrollEl);
         if (!g) {
             g = { ctls: [] };
             this.groups.set(scrollEl, g);
             scrollEl.addEventListener("scroll", () => this.arbitrate(scrollEl), { passive: true });
         }
-        const exists = g.ctls.some(c => c instanceof StickyMediaController ? c.media === media : c instanceof LivePreviewStickyMediaController && c.getMedia() === media);
-        if (exists) return;
-        const ctrl = scrollEl.matches(".cm-scroller")
-            ? new LivePreviewStickyMediaController(media, scrollEl, hostEl)
-            : new StickyMediaController(media, scrollEl, hostEl, this);
+
+        if (g.ctls.some(c => c.media === media)) return;
+        const ctrl = new StickyMediaController(media, scrollEl, hostEl, this);
         ctrl.attach();
         g.ctls.push(ctrl);
     }

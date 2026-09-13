@@ -47,9 +47,11 @@ abstract class BaseController {
     protected docked = false;
     protected destroyed = false;
     protected wrapper: HTMLElement;
+    public anchor: HTMLElement | null = null;
 
     get isActive(): boolean { return this.attached && !this.destroyed && this.media.isConnected; }
     isDocked(): boolean { return this.docked; }
+    getStickyHeight(): number { return this.wrapper.getBoundingClientRect().height; }
 
     constructor(public readonly media: HTMLMediaElement, protected readonly scrollEl: HTMLElement, protected readonly hostEl: HTMLElement) {
         this.wrapper = resolveWrapper(media, scrollEl);
@@ -64,7 +66,6 @@ abstract class BaseController {
 }
 
 export class StickyMediaController extends BaseController {
-    private anchor: HTMLElement | null = null;
     private placeholder: HTMLElement | null = null;
     private layer: HTMLElement | null = null;
     private resizeObserver: ResizeObserver | null = null;
@@ -292,11 +293,70 @@ export class StickyMediaManager {
             const r = c.getTriggerRect();
             if (r.top < sr.top && r.top > bestTop) { bestTop = r.top; best = c; }
         }
+
+        if (best && this.shouldUnstick(scrollEl, best, sr)) best = null;
+
         for (const c of g.ctls) {
             const should = c === best;
             if (should && !c.isDocked()) c.dock();
             else if (!should && c.isDocked()) c.restore();
         }
+    }
+
+    /**
+     * 限位判定，命中任一条件返回 true：
+    */
+   private shouldUnstick(scrollEl: HTMLElement, ctrl: BaseController, sr: DOMRect): boolean {
+       const anchor = ctrl.anchor;
+       if (!anchor?.isConnected) return false;
+       
+       const { nextTop, lastTsBottom } = this.scanAfterAnchor(scrollEl, anchor);
+       
+       // 下一媒体元素顶部与其底部重叠时
+       if (nextTop !== null && nextTop < sr.top + ctrl.getStickyHeight()) return true;
+       // 自身时间戳全部滚出容器顶部时
+       if (lastTsBottom !== null && lastTsBottom < sr.top) return true;
+        return false;
+    }
+
+    /**
+     * 从 anchor 向后扫描，返回：
+     *  - nextTop：下一个媒体代表元素（.tsp-sticky-anchor 或未包装媒体）的视口 top
+     *  - lastTsBottom：本段最后一个 .tsp-timestamp 的视口 bottom
+     * 两者均可能为 null（本段无时间戳 / 后面无更多媒体）。
+     */
+    private scanAfterAnchor(
+        scrollEl: HTMLElement,
+        anchor: HTMLElement
+    ): { nextTop: number | null; lastTsBottom: number | null } {
+        const all = scrollEl.querySelectorAll<HTMLElement>(
+            "audio, video, .tsp-sticky-anchor, .tsp-timestamp"
+        );
+        let nextTop: number | null = null;
+        let lastTsBottom: number | null = null;
+        let started = false;
+
+        for (const el of Array.from(all)) {
+            if (el === anchor) { started = true; continue; }
+            if (!started) continue;
+
+            if (el.classList.contains("tsp-sticky-anchor")) {
+                nextTop = el.getBoundingClientRect().top;
+                break;
+            }
+            if (el.tagName === "AUDIO" || el.tagName === "VIDEO") {
+                // 已被包装的媒体，其代表元素是前面的 anchor，跳过
+                if (!this.mediaMap.has(el as HTMLMediaElement)) {
+                    nextTop = el.getBoundingClientRect().top;
+                    break;
+                }
+                continue;
+            }
+            if (el.classList.contains("tsp-timestamp")) {
+                lastTsBottom = el.getBoundingClientRect().bottom;
+            }
+        }
+        return { nextTop, lastTsBottom };
     }
 
     private startObs() {
